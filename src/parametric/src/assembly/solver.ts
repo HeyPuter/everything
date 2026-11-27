@@ -25,8 +25,8 @@
 // (a drag step, a motion study frame, the document after a commit), so the
 // turns add up: a gear driven round and round keeps its ratio past ±180°.
 
-import type { Quat, Vec3 } from '../math/vec';
-import { add, cross, dot, len, normalize, qMul, qNormalize, qRotate, scale, sub } from '../math/vec';
+import type { Quat, Vec2, Vec3 } from '../math/vec';
+import { add, cross, dot, len, normalize, perpendicular, qMul, qNormalize, qRotate, scale, sub } from '../math/vec';
 import type { Id } from '../model/types';
 import { type MateType, type Placement, isMechanical } from '../model/assembly';
 
@@ -39,7 +39,25 @@ export type Geo =
   | { kind: 'point'; p: Vec3 }
   | { kind: 'sphere'; c: Vec3; r: number }
   /** A whole component (lock mates). */
-  | { kind: 'body' };
+  | { kind: 'body' }
+  /** A cam's profile: a closed curve swept along d, in its plane (o, u, v): see camProfile. */
+  | CamProfile;
+
+/**
+ * A cam's profile in the cam's coordinates. Followers touch its convex
+ * outline: a circle (exactly) or a polygon (arcs finely divided). `concave`:
+ * how deep the profile dips inside that outline (zero when it is convex).
+ */
+export interface CamProfile {
+  kind: 'profile';
+  o: Vec3; d: Vec3; u: Vec3; v: Vec3;
+  circle: { c: Vec2; r: number } | null;
+  /** Counter-clockwise convex polygon (when not a circle): the arcs divided, with the corners. */
+  hull: Vec2[];
+  /** The arcs themselves (counter-clockwise from a0 by span), so contact on them is exact. */
+  arcs: { c: Vec2; r: number; a0: number; span: number }[];
+  concave: number;
+}
 
 export interface SolverEntity {
   /** The component the geometry belongs to; null for the assembly itself (its planes). */
@@ -67,8 +85,8 @@ export interface SolverMate {
   limit?: { min: number; max: number };
   /** Gear: b's pitch diameter or part of the ratio (value is a's). */
   value2?: number;
-  /** Rack and pinion: value is the travel per turn (not the pitch diameter). */
-  by?: 'ratio' | 'revolution';
+  /** Rack and pinion: value is the travel per turn (not the pitch diameter). Universal joint: the axes meet at a joint point. */
+  by?: 'ratio' | 'revolution' | 'point';
   /** Gear, rack and pinion: the other way round; screw: left-hand. */
   reverse?: boolean;
 }
@@ -80,7 +98,15 @@ export interface SolverMate {
  */
 export type Drive =
   | { kind: 'rotate'; body: Id; axis: Vec3; amount: number }
-  | { kind: 'translate'; body: Id; local: Vec3; dir: Vec3; amount: number };
+  | { kind: 'translate'; body: Id; local: Vec3; dir: Vec3; amount: number }
+  /**
+   * A motor on a hinge or slider: body turns about `axis`, or its point
+   * `local` moves along `dir`, relative to `base` (both in base's coordinates).
+   */
+  | { kind: 'relTurn'; body: Id; base: Id | null; axis: Vec3; amount: number }
+  | { kind: 'relSlide'; body: Id; base: Id | null; local: Vec3; dir: Vec3; amount: number };
+
+const driveBodies = (d: Drive): Id[] => (d.kind === 'relTurn' || d.kind === 'relSlide') && d.base ? [d.body, d.base] : [d.body];
 
 export interface SolverBody {
   id: Id;
@@ -509,6 +535,59 @@ function mechanicalEquations(c: MechContext): number[] | null {
       const mid = (p: Vec3, q: Vec3) => scale(add(p, q), 0.5);
       return [...cross(ga.n, gb.n), dot(sub(mid(gb.o, gb2.o), mid(ga.o, ga2.o)), ga.n) / L];
     }
+    case 'slider': {
+      if (!m.rel) return null;
+      const rel = relativePlacement(c.pa, c.pb);
+      let rows: number[] | null, dir: Vec3 | null;
+      if (!ga2 || !gb2) {
+        // Axes or straight edges: on one line, and no turn about it from where it was added.
+        if (!isAxisLike(ga) || !isAxisLike(gb) || !isAxisLike(m.a.geo)) return null;
+        dir = normalize(dirOf(m.a.geo)!);
+        const da = normalize(dirOf(ga)!), db = normalize(dirOf(gb)!);
+        rows = [...(m.aligned ? sub(da, db) : add(da, db)), ...scale(cross(sub(pointOf(gb)!, pointOf(ga)!), da), 1 / L), turnAbout(rel.q, m.rel.q, dir)];
+      } else {
+        // Two pairs of faces flush: they slide along the line where the faces meet.
+        const p1 = equations('coincident', ga, gb, o, null, null), p2 = equations('coincident', ga2, gb2, { ...o, aligned: !!m.aligned2 }, null, null);
+        if (!p1 || !p2 || m.a.geo.kind !== 'plane' || m.a2?.geo.kind !== 'plane') return null;
+        dir = normalize(cross(m.a.geo.n, m.a2.geo.n));
+        rows = [...p1, ...p2];
+      }
+      if (!m.limit) return rows;
+      return [...rows, ...(c.ineq ? [outside(sliderTravel(m, rel, dir), m.limit.min, m.limit.max) / L] : [])];
+    }
+    case 'cam': {
+      const prof = m.a.geo;
+      if (prof.kind !== 'profile') return null;
+      // The follower in the cam's coordinates, then in its profile's plane.
+      const qi: Quat = [-c.pa.q[0], -c.pa.q[1], -c.pa.q[2], c.pa.q[3]];
+      const local = (p: Vec3) => qRotate(qi, sub(p, c.pa.p));
+      const in2 = (p: Vec3): Vec2 => { const w = sub(local(p), prof.o); return [dot(w, prof.u), dot(w, prof.v)]; };
+      if (gb.kind === 'point') return [profileDistance(prof, in2(gb.p)) / L];
+      if (gb.kind === 'sphere') return [(profileDistance(prof, in2(gb.c)) - gb.r) / L];
+      if (gb.kind === 'axis') return [(profileDistance(prof, in2(gb.p)) - gb.r) / L];
+      if (gb.kind === 'plane') {
+        // A flat face touches the cam where the cam reaches furthest toward it (the cam on its outer side).
+        const n = qRotate(qi, scale(gb.n, m.flip ? -1 : 1));
+        const n2: Vec2 = [dot(n, prof.u), dot(n, prof.v)];
+        const nl = Math.hypot(n2[0], n2[1]);
+        if (nl < 1e-9) return null;
+        const u2: Vec2 = [n2[0] / nl, n2[1] / nl];
+        const o2 = in2(gb.o);
+        return [(-profileSupport(prof, [-u2[0], -u2[1]]) - (o2[0] * u2[0] + o2[1] * u2[1])) / L];
+      }
+      return null;
+    }
+    case 'universal': {
+      if (!m.rel || !isAxisLike(ga) || !isAxisLike(gb) || !m.a.body || !m.b.body) return null;
+      const y = yokes(m);
+      if (!y) return null;
+      // The cross piece holds the two yokes square to each other.
+      const rows = [dot(qRotate(c.pa.q, y.a), qRotate(c.pb.q, y.b))];
+      if (m.by !== 'point') return rows;
+      // The axes meet at the joint point, `value` along a's axis.
+      const j = applyPlacement(c.pa, add(pointOf(m.a.geo)!, scale(normalize(dirOf(m.a.geo)!), m.value)));
+      return [...rows, ...scale(cross(sub(j, pointOf(gb)!), normalize(dirOf(gb)!)), 1 / L)];
+    }
     case 'slot': {
       if (!ga2 || !isAxisLike(ga) || !isAxisLike(ga2)) return null;
       const da = normalize(dirOf(ga)!), p1 = pointOf(ga)!, w = sub(pointOf(ga2)!, p1);
@@ -528,14 +607,170 @@ function mechanicalEquations(c: MechContext): number[] | null {
 
 const placeGeoDir = (g: Geo, pl: Placement): Vec3 => normalize(qRotate(pl.q, dirOf(g) ?? [0, 0, 1]));
 
+/** A slider's travel (mm) from where it was added: b's entity along the slide, in a's coordinates. */
+function sliderTravel(m: SolverMate, rel: Placement, dir: Vec3): number {
+  const p = pointOf(m.b.geo) ?? [0, 0, 0];
+  return dot(sub(applyPlacement(rel, p), applyPlacement(m.rel!, p)), dir);
+}
+
+/** The direction a slider slides, in a's coordinates. */
+export function sliderDirection(m: SolverMate): Vec3 | null {
+  if (m.a2?.geo.kind === 'plane' && m.a.geo.kind === 'plane') { const d = cross(m.a.geo.n, m.a2.geo.n); return len(d) > 1e-9 ? normalize(d) : null; }
+  const d = dirOf(m.a.geo);
+  return d ? normalize(d) : null;
+}
+
+/**
+ * The yokes of a universal joint, each in its shaft's coordinates: a's in
+ * the plane of the two axes where the joint was added, b's square to it and
+ * to b's axis. Measured from there, b turns by atan(tan φ / cos β) as a
+ * turns by φ (β the angle between the axes).
+ */
+function yokes(m: SolverMate): { a: Vec3; b: Vec3 } | null {
+  const da = dirOf(m.a.geo), db = dirOf(m.b.geo);
+  if (!da || !db || !m.rel) return null;
+  const a = normalize(da);
+  const bInA = normalize(qRotate(m.rel.q, db));
+  const off = sub(bInA, scale(a, dot(bInA, a)));
+  const ya = len(off) > 1e-9 ? normalize(off) : perpendicular(a);
+  const yb = normalize(cross(bInA, ya));
+  return { a: ya, b: qRotate([-m.rel.q[0], -m.rel.q[1], -m.rel.q[2], m.rel.q[3]], yb) };
+}
+
+// ---------- cam profiles ----------
+
+/** A circular arc of a cam's profile: centre and radius, and (unless it is a whole circle) its ends and a point between them. */
+export interface ProfileArc { c: Vec3; r: number; ends?: [Vec3, Vec3, Vec3] }
+
+/**
+ * A cam's profile from its round faces (arcs about axes along d) and the
+ * corners of its other faces (points), all in the cam's coordinates. A
+ * single whole circle stays a circle (exact); otherwise arcs are divided
+ * finely (a 20 mm radius by at most 0.4 µm) and the outline is their convex
+ * hull with the points. Where the profile lies inside that outline it is
+ * concave, and `concave` says by how much.
+ */
+export function camProfile(d0: Vec3, arcs: ProfileArc[], points: Vec3[]): CamProfile {
+  const d = normalize(d0);
+  const u = perpendicular(d), v = cross(d, u);
+  const o = arcs[0]?.c ?? points[0] ?? [0, 0, 0];
+  const in2 = (p: Vec3): Vec2 => { const w = sub(p, o); return [dot(w, u), dot(w, v)]; };
+  const base = { kind: 'profile' as const, o, d, u, v };
+  const whole = arcs.filter((a) => !a.ends);
+  if (arcs.length === 1 && whole.length === 1) {
+    const c = in2(whole[0].c), r = whole[0].r;
+    // Corners of other faces on the circle (its caps' edges, say) change nothing.
+    if (points.every((p) => Math.abs(Math.hypot(in2(p)[0] - c[0], in2(p)[1] - c[1]) - r) < 1e-6 * Math.max(1, r))) return { ...base, circle: { c, r }, hull: [], arcs: [], concave: 0 };
+  }
+  const pts: Vec2[] = points.map(in2);
+  const exact: CamProfile['arcs'] = [];
+  for (const a of arcs) {
+    const c = in2(a.c);
+    const ang = (p: Vec3) => { const q = in2(p); return Math.atan2(q[1] - c[1], q[0] - c[0]); };
+    let a0 = 0, sweep = 2 * Math.PI;
+    if (a.ends) {
+      // From one end through the middle point to the other.
+      a0 = ang(a.ends[0]);
+      const am = ang(a.ends[2]), a1 = ang(a.ends[1]);
+      const ccw = (x: number) => ((x - a0) % (2 * Math.PI) + 2 * Math.PI) % (2 * Math.PI);
+      sweep = ccw(am) <= ccw(a1) ? ccw(a1) : ccw(a1) - 2 * Math.PI;
+    }
+    exact.push({ c, r: a.r, a0: sweep >= 0 ? a0 : a0 + sweep, span: Math.abs(sweep) });
+    const n = Math.max(8, Math.ceil(Math.abs(sweep) / (0.2 * Math.PI / 180)));
+    for (let k = 0; k <= n; k++) { const t = a0 + (sweep * k) / n; pts.push([c[0] + a.r * Math.cos(t), c[1] + a.r * Math.sin(t)]); }
+  }
+  const hull = convexHull(pts);
+  let concave = 0;
+  for (const p of pts) concave = Math.max(concave, -polygonDistance(hull, p));
+  return { ...base, circle: null, hull, arcs: exact, concave };
+}
+
+/** Whether the direction of w lies on an arc (counter-clockwise from a0 by span). */
+const onArc = (a: CamProfile['arcs'][number], w: Vec2) => (((Math.atan2(w[1], w[0]) - a.a0) % (2 * Math.PI)) + 2 * Math.PI) % (2 * Math.PI) <= a.span + 1e-12;
+
+/** Counter-clockwise convex hull (monotone chain). */
+function convexHull(pts: Vec2[]): Vec2[] {
+  const p = [...pts].sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  if (p.length < 3) return p;
+  const turn = (o: Vec2, a: Vec2, b: Vec2) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lower: Vec2[] = [], upper: Vec2[] = [];
+  for (const x of p) { while (lower.length >= 2 && turn(lower[lower.length - 2], lower[lower.length - 1], x) <= 1e-12) lower.pop(); lower.push(x); }
+  for (let i = p.length - 1; i >= 0; i--) { const x = p[i]; while (upper.length >= 2 && turn(upper[upper.length - 2], upper[upper.length - 1], x) <= 1e-12) upper.pop(); upper.push(x); }
+  return [...lower.slice(0, -1), ...upper.slice(0, -1)];
+}
+
+/** Signed distance from a point to a convex polygon (negative inside). */
+function polygonDistance(h: Vec2[], x: Vec2): number {
+  let inside = true, best = Infinity, depth = Infinity;
+  for (let i = 0; i < h.length; i++) {
+    const a = h[i], b = h[(i + 1) % h.length];
+    const ex = b[0] - a[0], ey = b[1] - a[1], l2 = ex * ex + ey * ey || 1;
+    const wx = x[0] - a[0], wy = x[1] - a[1];
+    const side = (ex * wy - ey * wx) / Math.sqrt(l2);
+    if (side < 0) inside = false;
+    depth = Math.min(depth, side);
+    const t = Math.max(0, Math.min(1, (wx * ex + wy * ey) / l2));
+    best = Math.min(best, Math.hypot(wx - t * ex, wy - t * ey));
+  }
+  return inside ? -depth : best;
+}
+
+/** Signed distance from a point in the profile's plane to its outline. */
+export function profileDistance(p: CamProfile, x: Vec2): number {
+  if (p.circle) return Math.hypot(x[0] - p.circle.c[0], x[1] - p.circle.c[1]) - p.circle.r;
+  const poly = polygonDistance(p.hull, x);
+  // The arcs a point faces give its exact distance; the polygon's chords lie a little inside them.
+  let out = Infinity, inside = -Infinity;
+  for (const a of p.arcs) {
+    const w: Vec2 = [x[0] - a.c[0], x[1] - a.c[1]];
+    if (!onArc(a, w)) continue;
+    const d = Math.hypot(w[0], w[1]) - a.r;
+    out = Math.min(out, d);
+    inside = Math.max(inside, d);
+  }
+  // Outside (or between a chord and its arc): the nearest of the edges and arcs, none nearer than the outline.
+  if (poly >= 0) return Math.min(poly, out);
+  // Inside, near an arc (no deeper than the chords' sag, 0.2° apart): the arc's.
+  return inside >= poly - 2e-6 * Math.max(1, ...p.arcs.map((a) => a.r)) ? inside : poly;
+}
+
+/** How far the outline reaches along a unit direction (its support function). */
+export function profileSupport(p: CamProfile, u: Vec2): number {
+  if (p.circle) return p.circle.c[0] * u[0] + p.circle.c[1] * u[1] + p.circle.r;
+  let best = -Infinity;
+  for (const q of p.hull) best = Math.max(best, q[0] * u[0] + q[1] * u[1]);
+  for (const a of p.arcs) if (onArc(a, u)) best = Math.max(best, a.c[0] * u[0] + a.c[1] * u[1] + a.r);
+  return best;
+}
+
 /** Why the entities (and values) of a mechanical mate do not make one, or null when they do. */
-export function mechanicalProblem(m: Pick<SolverMate, 'type' | 'a' | 'b' | 'a2' | 'b2' | 'value' | 'value2' | 'limit'>): string | null {
+export function mechanicalProblem(m: Pick<SolverMate, 'type' | 'a' | 'b' | 'a2' | 'b2' | 'value' | 'value2' | 'limit' | 'rel'>): string | null {
   const { a, b, a2, b2 } = m;
   const axis = (e?: SolverEntity) => !!e && (e.geo.kind === 'axis' || e.geo.kind === 'line');
   const round = (e?: SolverEntity) => !!e && e.geo.kind === 'axis';
   const plane = (e?: SolverEntity) => !!e && e.geo.kind === 'plane';
   const parallel = (x: SolverEntity, y: SolverEntity) => x.body === y.body && Math.abs(dot(normalize(dirOf(x.geo)!), normalize(dirOf(y.geo)!))) > 0.9999;
   switch (m.type) {
+    case 'slider':
+      if (!a.body && !b.body) return 'A slider needs a component';
+      if (!m.rel) return 'The slider has no stored position';
+      if (a2 || b2) {
+        if (!plane(a) || !plane(a2) || !plane(b) || !plane(b2)) return 'A slider needs a straight edge or axis on each component, or two planar faces on each';
+        if (a2!.body !== a.body || b2!.body !== b.body) return 'Each component\'s two faces must be faces of that component';
+        if (Math.abs(dot(normalize(dirOf(a.geo)!), normalize(dirOf(a2!.geo)!))) > 0.999) return 'The two faces on each component must not be parallel (the slider moves along the line where they meet)';
+      } else if (!axis(a) || !axis(b)) return 'A slider needs a straight edge or axis on each component, or two planar faces on each';
+      return m.limit && !(m.limit.min <= m.limit.max) ? 'The smallest travel must not be more than the largest' : null;
+    case 'cam': {
+      if (a.geo.kind !== 'profile') return 'A cam mate needs the faces of the cam\'s profile and a follower';
+      if (!a.body || a.body === b.body) return 'The cam and the follower must be different components';
+      if (!['point', 'sphere', 'axis', 'plane'].includes(b.geo.kind)) return 'The follower must be a vertex, a round face or edge (a roller) or a planar face';
+      const size = a.geo.circle ? a.geo.circle.r : Math.max(1, ...a.geo.hull.map((q) => Math.hypot(q[0], q[1])));
+      if (a.geo.concave > 1e-6 * Math.max(1, size)) return `The cam's profile has a hollow ${Math.round(a.geo.concave * 1000) / 1000} mm deep: a follower cannot stay in contact there. Cam mates follow convex profiles (an eccentric, lobes and flats).`;
+      return b.geo.kind === 'plane' && Math.abs(dot(normalize(b.geo.n), a.geo.d)) > 0.999 ? 'The flat follower face must face the cam across its axis, not along it' : null;
+    }
+    case 'universal':
+      if (!axis(a) || !axis(b) || !a.body || !b.body) return 'A universal joint needs a round face or edge (or an axis) on each of two shafts';
+      return m.rel ? null : 'The universal joint has no stored position';
     case 'hinge':
       if (!round(a) || !round(b) || !plane(a2) || !plane(b2)) return 'A hinge needs two round faces or edges (the pin and its hole) and two planar faces that touch';
       if (a2!.body !== a.body || b2!.body !== b.body) return 'Each planar face of a hinge must be on the component of the round entity selected with it';
@@ -580,6 +815,10 @@ export function mateMeasure(m: SolverMate, pl: Map<Id, Placement>, L = 100): { v
     if (!rel || m.a.geo.kind !== 'axis') return null;
     return { value: (turnAbout(relativePlacement(pa, pb).q, rel.q, normalize(m.a.geo.d)) * 180) / Math.PI, kind: 'angle' };
   }
+  if (m.type === 'slider' && m.rel) {
+    const dir = sliderDirection(m);
+    return dir ? { value: sliderTravel(m, relativePlacement(at(m.a) ?? IDENT, at(m.b) ?? IDENT), dir), kind: 'length' } : null;
+  }
   if (m.type === 'slot' && m.a2) {
     const ga2 = placeGeo(m.a2.geo, at(m.a2));
     const da = dirOf(ga), p1 = pointOf(ga), p2 = pointOf(ga2), pb = pointOf(gb);
@@ -619,7 +858,7 @@ export class MateSolver {
     for (const m of mates) for (const id of mateBodies(m)) involved.add(id);
     if (opts.drag) involved.add(opts.drag.body);
     const drives = opts.drives ?? [];
-    for (const d of drives) involved.add(d.body);
+    for (const d of drives) for (const id of driveBodies(d)) involved.add(id);
     const vars = [...involved].filter((id) => bodies.has(id) && !bodies.get(id)!.fixed);
     const sys: System = { vars, index: new Map(vars.map((id, i) => [id, i])), bodies, centers: new Map(vars.map((id) => [id, bodies.get(id)!.center ?? [0, 0, 0]])) };
     const placements = new Map([...bodies].map(([id, b]) => [id, b.placement]));
@@ -778,7 +1017,7 @@ export class MateSolver {
       block(row, mateBodies(mt), f);
       row += len0;
     }
-    for (const d of drives) { block(row, [d.body], (pl) => driveResidual([d], pl, base, L)); row++; }
+    for (const d of drives) { block(row, driveBodies(d), (pl) => driveResidual([d], pl, base, L)); row++; }
     if (drag) block(row, [drag.body], (pl) => dragResidual(drag, pl, L).map((v) => v * dragWeight));
     return J;
   }
@@ -949,7 +1188,11 @@ function driveResidual(drives: Drive[], pl: Map<Id, Placement>, ref: Map<Id, Pla
     const p = pl.get(d.body), p0 = ref.get(d.body);
     if (!p || !p0) return 0;
     if (d.kind === 'rotate') return turnAbout(p.q, p0.q, d.axis) - d.amount;
-    return (dot(sub(applyPlacement(p, d.local), applyPlacement(p0, d.local)), d.dir) - d.amount) / L;
+    if (d.kind === 'translate') return (dot(sub(applyPlacement(p, d.local), applyPlacement(p0, d.local)), d.dir) - d.amount) / L;
+    const b = d.base ? pl.get(d.base) ?? IDENT : IDENT, b0 = d.base ? ref.get(d.base) ?? IDENT : IDENT;
+    const rel = relativePlacement(b, p), rel0 = relativePlacement(b0, p0);
+    if (d.kind === 'relTurn') return turnAbout(rel.q, rel0.q, d.axis) - d.amount;
+    return (dot(sub(applyPlacement(rel, d.local), applyPlacement(rel0, d.local)), d.dir) - d.amount) / L;
   });
 }
 

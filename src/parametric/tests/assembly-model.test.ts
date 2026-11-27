@@ -232,4 +232,39 @@ describe('mechanical mates and motion studies in files', () => {
     const back = parseAssembly(JSON.stringify({ ...JSON.parse(text), studies: [{ ...JSON.parse(text).studies[0], motors: [{ ...JSON.parse(text).studies[0].motors[0], extra: 1 }] }] }));
     expect('extra' in back.studies![0].motors[0]).toBe(false);
   });
+
+  it('round-trips sliders, cams and universal joints, and motors on hinges and sliders; refuses them malformed', () => {
+    const doc = kinematic();
+    const edge = { name: 'e', sig: { type: 'line', m: [0, 0, 0] as [number, number, number], len: 5 } };
+    const rel = { p: [1, 2, 3] as [number, number, number], q: [0, 0, 0, 1] as [number, number, number, number] };
+    doc.mates.push(
+      { id: 'm40', name: 'Slider1', type: 'slider', a: { comp: 'c3', edge }, b: { comp: 'c4', edge }, aligned: true, rel, limit: { min: -5, max: '=Gap*10' } },
+      { id: 'm41', name: 'Slider2', type: 'slider', a: { comp: 'c3', face: face('f1') }, a2: { comp: 'c3', face: face('f2') }, b: { comp: 'c4', face: face('f3') }, b2: { comp: 'c4', face: face('f4') }, aligned: false, aligned2: true, rel },
+      { id: 'm42', name: 'Cam1', type: 'cam', a: { comp: 'c3', face: cyl('lobe') }, chain: [face('flank'), cyl('nose')], b: { comp: 'c4', point: [1, 2, 3] }, aligned: true, flip: true },
+      { id: 'm43', name: 'Universal Joint1', type: 'universal', a: { comp: 'c3', face: cyl('h') }, b: { comp: 'c4', face: cyl('k') }, aligned: true, rel, by: 'point', value: '=Gap' },
+    );
+    doc.studies![0].motors.push(
+      { id: 'o44', name: 'RotaryMotor2', kind: 'rotary', mate: 'm20', profile: 'constant', speed: 30 },
+      { id: 'o45', name: 'LinearMotor2', kind: 'linear', mate: 'm40', profile: 'oscillate', amplitude: 3, frequency: 1 },
+    );
+    const text = serializeDocument(doc as never);
+    expect(parseAssembly(text)).toEqual({ ...doc, nextId: 46 });
+    const edit = (patch: (d: Record<string, any>) => void) => { const raw = JSON.parse(text); patch(raw); return () => parseAssembly(JSON.stringify(raw)); };
+    const mate = (id: string) => (d: Record<string, any>) => d.mates.find((m: { id: string }) => m.id === id);
+    expect(edit((d) => { delete mate('m40')(d).rel; })).toThrow(/invalid mate/);
+    expect(edit((d) => { delete mate('m41')(d).b2; })).toThrow(/invalid mate/);
+    expect(edit((d) => { mate('m40')(d).limit = { min: 'x' , max: null }; })).toThrow(/invalid mate/);
+    expect(edit((d) => { mate('m42')(d).chain = 'flank'; })).toThrow(/invalid mate/);
+    expect(edit((d) => { mate('m42')(d).chain = [{ name: 'x' }]; })).toThrow(/invalid mate/);
+    expect(edit((d) => { mate('m42')(d).b = { comp: 'c4', point: [1, 2] }; })).toThrow(/invalid mate/);
+    expect(edit((d) => { mate('m42')(d).a = { comp: 'c3', point: [1, 2, 3] }; })).toThrow(/invalid mate/);
+    expect(edit((d) => { mate('m21')(d).chain = [face('x')]; })).toThrow(/invalid mate/);
+    expect(edit((d) => { mate('m21')(d).b = { comp: 'c5', point: [0, 0, 0] }; })).toThrow(/invalid mate/);
+    expect(edit((d) => { delete mate('m43')(d).value; })).toThrow(/invalid mate/);
+    expect(edit((d) => { delete mate('m43')(d).rel; })).toThrow(/invalid mate/);
+    expect(edit((d) => { mate('m43')(d).by = 'ratio'; })).toThrow(/invalid mate/);
+    expect(edit((d) => { d.studies[0].motors[3].ref = d.studies[0].motors[0].ref; })).toThrow(/invalid motor/);
+    expect(edit((d) => { d.studies[0].motors[3].mate = 'm99'; })).toThrow(/invalid motor/);
+    expect(edit((d) => { d.studies[0].motors[4].profile = 'ramp'; d.studies[0].motors[4].from = 0; d.studies[0].motors[4].to = 1; })).toThrow(/invalid motor/);
+  });
 });

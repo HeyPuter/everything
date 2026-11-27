@@ -184,7 +184,7 @@ export class MotionStudyPanel extends PropertyPanel {
     const lengthy = m.kind === 'linear' || mt?.type === 'distance';
     const v = (p: Param | undefined, len = lengthy) => (p === undefined ? '?' : typeof p === 'string' ? p : String(Math.round((len ? p / u.scale : p) * 1000) / 1000));
     const unit = m.kind === 'rotary' ? (m.rpm ? ' rpm' : '°/s') : lengthy ? ` ${u.length}/s` : '°/s';
-    const what = m.kind === 'mate' ? this.mode.doc.mates.find((x) => x.id === m.mate)?.name ?? '?' : m.ref && 'comp' in m.ref ? this.mode.component(m.ref.comp)?.name ?? '?' : '?';
+    const what = m.mate ? this.mode.doc.mates.find((x) => x.id === m.mate)?.name ?? '?' : m.ref && 'comp' in m.ref ? this.mode.component(m.ref.comp)?.name ?? '?' : '?';
     const how = m.profile === 'constant' ? `${v(m.speed)}${unit}` : m.profile === 'oscillate' ? `±${v(m.amplitude)} at ${v(m.frequency, false)} Hz` : `${v(m.from)} to ${v(m.to)}`;
     return `${KIND_LABELS[m.kind]}, ${what}: ${how}${m.reverse ? ', reversed' : ''}`;
   }
@@ -471,7 +471,7 @@ export class MotionStudyPanel extends PropertyPanel {
       h('div', { class: 'field-label' }, 'Motor type'),
       segmented('Motor type', m.kind, [{ value: 'rotary', label: 'Rotary' }, { value: 'linear', label: 'Linear' }, { value: 'mate', label: 'Mate' }], (v) => {
         const p: MotionProfile = v !== 'mate' && m.profile === 'ramp' ? 'constant' : m.profile;
-        Object.assign(this.motor!, { kind: v, profile: p, ref: v === 'mate' ? undefined : m.ref, mate: v === 'mate' ? m.mate : undefined, rpm: v === 'rotary' ? m.rpm : undefined });
+        Object.assign(this.motor!, { kind: v, profile: p, ref: v === 'mate' ? undefined : m.ref, mate: undefined, rpm: v === 'rotary' ? m.rpm : undefined });
         if (p === 'constant' && m.speed === undefined) this.motor!.speed = 10;
         this.app.refreshPanel();
       }),
@@ -484,6 +484,16 @@ export class MotionStudyPanel extends PropertyPanel {
         items.push(selectField('Mate to drive', m.mate!, mates.map((x) => ({ value: x.id, label: `${x.name} (${MATE_LABELS[x.type]})` })), (v) => set({ mate: v }), 'mate'));
       }
     } else {
+      // On a hinge or slider, or on a face or edge of the component to move.
+      const want = m.kind === 'rotary' ? 'hinge' : 'slider';
+      const mounts = this.mode.doc.mates.filter((x) => x.type === want);
+      if (m.mate && !mounts.some((x) => x.id === m.mate)) delete m.mate;
+      items.push(selectField('Motor on', m.mate ?? '', [{ value: '', label: 'A face or edge (select it below)' }, ...mounts.map((x) => ({ value: x.id, label: `${x.name} (${MATE_LABELS[x.type]})` }))], (v) => {
+        if (v) { this.motor!.mate = v; delete this.motor!.ref; } else delete this.motor!.mate;
+        this.app.refreshPanel();
+      }, 'mate'));
+    }
+    if (m.kind !== 'mate' && !m.mate) {
       const box = new SelectionBox(this, m.kind === 'rotary' ? 'Motor axis' : 'Motor direction', { face: true, edge: true }, (it) => {
         const r = this.mode.refOf(it);
         if (!r || !('comp' in r) || !('face' in r || 'edge' in r)) return null;
@@ -534,14 +544,14 @@ export class MotionStudyPanel extends PropertyPanel {
     if (!m) return;
     if (save) {
       if (!this.checkFields()) return;
-      if (m.kind !== 'mate' && !m.ref) { this.setMessage('error', m.kind === 'rotary' ? 'Select the motor\'s axis: a round face or edge of the component to turn.' : 'Select the motor\'s direction: a straight edge or face of the component to move.'); return; }
+      if (m.kind !== 'mate' && !m.ref && !m.mate) { this.setMessage('error', m.kind === 'rotary' ? 'Select the motor\'s axis (a round face or edge of the component to turn), or a hinge to put it on.' : 'Select the motor\'s direction (a straight edge or face of the component to move), or a slider to put it on.'); return; }
       if (m.kind === 'mate' && !m.mate) { this.setMessage('error', 'Select the mate to drive.'); return; }
       // Only the fields of its kind and profile are kept.
       const keep: (keyof MotionMotor)[] = m.profile === 'constant' ? ['speed'] : m.profile === 'oscillate' ? ['amplitude', 'frequency'] : ['from', 'to'];
       for (const k of ['speed', 'amplitude', 'frequency', 'from', 'to'] as const) if (!keep.includes(k)) delete m[k];
       if (m.kind !== 'rotary') delete m.rpm;
       if (m.profile === 'ramp') delete m.reverse;
-      if (m.kind === 'mate') delete m.ref; else delete m.mate;
+      if (m.kind === 'mate' || m.mate) delete m.ref; else delete m.mate;
       if (this.motorIndex < 0) {
         // Ids and names are allocated as the document's would be (the study's own motors counted too).
         const draft = { ...this.mode.doc, studies: [...(this.mode.doc.studies ?? []).filter((s) => s.id !== this.key), this.study] };

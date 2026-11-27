@@ -18,6 +18,16 @@ const disc = (r: number) => [
   { id: 'S1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, entities: circle('k', 0, 0, r), constraints: [] },
   extrude('E1', 'S1', 5),
 ];
+/** An eccentric cam: a Ø40 disc whose Ø8 bore is 5 off its centre, 10 thick. */
+const CAM = [
+  { id: 'S1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, entities: [...circle('k', 5, 0, 20), ...circle('hb', 0, 0, 4)], constraints: [] },
+  extrude('E1', 'S1', 10),
+];
+/** A Ø8 shaft, 30 long. */
+const SHAFT = [
+  { id: 'S1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, entities: circle('k', 0, 0, 4), constraints: [] },
+  extrude('E1', 'S1', 30),
+];
 /** A 100 × 10 × 10 bar (a rack, or a tab). */
 const BAR = [
   { id: 'S1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, entities: pts('r', [[0, 0], [100, 0], [100, 10], [0, 10]]), constraints: [] },
@@ -374,6 +384,148 @@ test('limit, width, slot, screw and rack and pinion mates through the Mate panel
   await tree.getByRole('treeitem', { name: /^Rack Pinion1/ }).dblclick();
   await expect(pm.getByRole('combobox', { name: 'Mate type' })).toHaveValue('rackPinion');
   await expect(pm.getByRole('checkbox', { name: 'Reverse the direction' })).toBeChecked();
+  await pm.getByRole('button', { name: 'Cancel' }).click();
+  expect(errors).toEqual([]);
+});
+
+test('slider, cam follower and universal joint through the Mate panel; motors on a slider and a hinge', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = await openApp(page);
+  await newAssemblyWith(page, [['Plate', PLATE], ['Bar', BAR], ['Cam', CAM], ['Shaft', SHAFT]], ['Plate', 'Bar', 'Cam', 'Shaft', 'Shaft']);
+  await built(page, ['Plate<1>', 'Bar<1>', 'Cam<1>', 'Shaft<1>', 'Shaft<2>']);
+  const tree = page.getByRole('tree', { name: 'Assembly design tree' });
+  const pm = page.locator('.pm');
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.selection.clear());
+
+  // Slider: the bar flush on the plate's front and right faces, sliding along y, at most 25 mm either way.
+  await page.locator('.cm [data-cmd="mate"]').click();
+  await pm.getByRole('combobox', { name: 'Mate type' }).selectOption('slider');
+  await pick(page, { comp: 'Plate<1>', face: 'E1:cap1' });
+  await pick(page, { comp: 'Plate<1>', face: 'E1:side:rl1' });
+  await expect(pm.getByRole('group', { name: 'Second component' })).toHaveClass(/active/);
+  await pick(page, { comp: 'Bar<1>', face: 'E1:cap0' });
+  await pick(page, { comp: 'Bar<1>', face: 'E1:side:rl1' });
+  await pm.getByRole('checkbox', { name: /Limit the travel/ }).check();
+  await expect(pm.getByRole('textbox', { name: 'Maximum' })).toHaveValue('25');
+  await expect(pm.getByRole('status').filter({ hasText: 'The mate holds' })).toBeVisible();
+  await pm.getByRole('button', { name: 'OK' }).click();
+  await expect(tree.getByRole('treeitem', { name: /^Slider1/ })).toBeVisible();
+  const bar = () => page.evaluate(() => {
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
+    return m.solved.get(m.doc.components.find((c) => c.name === 'Bar<1>')!.id)!.p;
+  });
+  expect((await bar())[0]).toBeCloseTo(0, 4);
+  expect((await bar())[2]).toBeCloseTo(10, 4);
+  // A linear motor on the slider at 10 mm/s: it stops at the limit after 2.5 s.
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await pm.getByRole('button', { name: 'Add Motor' }).click();
+  await pm.getByRole('group', { name: 'Motor type' }).getByRole('button', { name: 'Linear' }).click();
+  await pm.getByRole('combobox', { name: 'Motor on' }).selectOption({ label: 'Slider1 (Slider)' });
+  await pm.getByRole('textbox', { name: 'Speed' }).fill('10');
+  await pm.getByRole('textbox', { name: 'Speed' }).press('Enter');
+  await pm.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(pm.getByRole('listitem').filter({ hasText: 'LinearMotor1' })).toContainText('Slider1: 10 mm/s');
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('alert').filter({ hasText: /Slider1 reached its limit at 2\.5\d* s/ })).toBeVisible();
+  await pm.getByRole('button', { name: 'Cancel' }).click();
+  // Without the limit, for the cam to push it.
+  await tree.getByRole('treeitem', { name: /^Slider1/ }).dblclick();
+  await pm.getByRole('checkbox', { name: /Limit the travel/ }).uncheck();
+  await pm.getByRole('button', { name: 'OK' }).click();
+  expect(await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.assembly!.doc.mates.find((m) => m.name === 'Slider1')!.limit)).toBeUndefined();
+
+  // The cam on a hinge in the plate's first hole.
+  await select(page, [{ comp: 'Cam<1>', face: 'E1:side:hb' }, { comp: 'Plate<1>', face: 'E1:side:h1' }]);
+  await openMate(page, 'hinge');
+  await pm.getByRole('group', { name: 'Coincident selections' }).click();
+  await pick(page, { comp: 'Plate<1>', face: 'E1:cap1' });
+  await pick(page, { comp: 'Cam<1>', face: 'E1:cap0' });
+  await pm.getByRole('button', { name: 'OK' }).click();
+  await expect(tree.getByRole('treeitem', { name: /^Hinge1/ })).toBeVisible();
+
+  // Cam: the eccentric's round face, the bar's bottom face as a flat follower.
+  await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.selection.clear());
+  await openMate(page, 'cam');
+  await pick(page, { comp: 'Cam<1>', face: 'E1:side:k' });
+  await pm.getByRole('group', { name: 'Follower' }).click();
+  await pick(page, { comp: 'Bar<1>', face: 'E1:side:rl0' });
+  await expect(pm.getByRole('status').filter({ hasText: 'The mate holds' })).toBeVisible();
+  await pm.getByRole('button', { name: 'OK' }).click();
+  await expect(tree.getByRole('treeitem', { name: /^Cam1/ })).toBeVisible();
+  await expect(tree.getByRole('treeitem', { name: /^Cam1/ })).not.toHaveAttribute('aria-description', /Error/);
+
+  // A rotary motor on the hinge turns the cam a full turn: the bar's bottom stays on the eccentric's top.
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await pm.getByRole('button', { name: 'Add Motor' }).click();
+  await pm.getByRole('combobox', { name: 'Motor on' }).selectOption({ label: 'Hinge1 (Hinge)' });
+  await pm.getByRole('textbox', { name: 'Speed' }).fill('90');
+  await pm.getByRole('textbox', { name: 'Speed' }).press('Enter');
+  await pm.getByRole('button', { name: 'Add', exact: true }).click();
+  await pm.getByRole('spinbutton', { name: 'Duration (s)' }).fill('4');
+  await pm.getByRole('spinbutton', { name: 'Duration (s)' }).press('Enter');
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('status').filter({ hasText: 'Calculated 121 frames' })).toBeVisible();
+  const follow = await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    const m = a.assembly!;
+    const res = (a.panel as unknown as { result(): { frames: Map<string, { p: number[]; q: number[] }>[] } }).result();
+    const id = (n: string) => m.doc.components.find((c) => c.name === n)!.id;
+    const rot = (q: number[], v: number[]) => {
+      const [x, y, z, w] = q;
+      const t = [2 * (y * v[2] - z * v[1]), 2 * (z * v[0] - x * v[2]), 2 * (x * v[1] - y * v[0])];
+      return [v[0] + w * t[0] + y * t[2] - z * t[1], v[1] + w * t[1] + z * t[0] - x * t[2], v[2] + w * t[2] + x * t[1] - y * t[0]];
+    };
+    let worst = 0, lo = Infinity, hi = -Infinity;
+    for (const f of res.frames) {
+      const cam = f.get(id('Cam<1>'))!, b = f.get(id('Bar<1>'))!;
+      // The eccentric's top: its centre (5 off the bore, in the cam) plus its radius.
+      const top = rot(cam.q, [5, 0, 0])[1] + cam.p[1] + 20;
+      worst = Math.max(worst, Math.abs(b.p[1] - top));
+      lo = Math.min(lo, b.p[1]); hi = Math.max(hi, b.p[1]);
+    }
+    return { worst, lift: hi - lo };
+  });
+  expect(follow.worst).toBeLessThan(1e-6);
+  // The follower rises and falls by twice the eccentricity.
+  expect(follow.lift).toBeCloseTo(10, 3);
+  await pm.getByRole('button', { name: 'Cancel' }).click();
+
+  // Universal joint between the two shafts, with a joint point.
+  await select(page, [{ comp: 'Shaft<1>', face: 'E1:side:k' }, { comp: 'Shaft<2>', face: 'E1:side:k' }]);
+  await openMate(page, 'universal');
+  await expect(pm.getByRole('group', { name: 'Shafts' })).toContainText('Shaft<2>');
+  await pm.getByRole('checkbox', { name: /Joint point/ }).check();
+  await pm.getByRole('textbox', { name: 'Joint point offset (along the first shaft)' }).fill('15');
+  await pm.getByRole('textbox', { name: 'Joint point offset (along the first shaft)' }).press('Enter');
+  await expect(pm.getByRole('status').filter({ hasText: 'The mate holds' })).toBeVisible();
+  await pm.getByRole('button', { name: 'OK' }).click();
+  await expect(tree.getByRole('treeitem', { name: /^Universal Joint1/ })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.assembly!.doc.mates.find((m) => m.name === 'Universal Joint1'))).toMatchObject({ type: 'universal', by: 'point', value: 15, rel: { q: expect.any(Array) } });
+
+  // Flip and suppress from the Mates folder; undo; the edits survive saving and opening again.
+  await tree.getByRole('treeitem', { name: /^Cam1/ }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Flip Follower Face' }).click();
+  expect(await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.assembly!.doc.mates.find((m) => m.name === 'Cam1')!.flip)).toBe(true);
+  await page.keyboard.press('Meta+z');
+  expect(await page.evaluate(() => (window as unknown as { __parametric: A }).__parametric.assembly!.doc.mates.find((m) => m.name === 'Cam1')!.flip)).toBeUndefined();
+  await tree.getByRole('treeitem', { name: /^Universal Joint1/ }).click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Suppress' }).click();
+  await expect(tree.getByRole('treeitem', { name: /^Universal Joint1/ })).toHaveAttribute('aria-description', /Suppressed/);
+  await page.keyboard.press('Meta+s');
+  await expect(page).toHaveTitle(/^Assembly\d+ - Parametric$/);
+  const name = (await page.title()).replace(' - Parametric', '');
+  await page.evaluate(() => { void (window as unknown as { __parametric: A }).__parametric.commands.run('new'); });
+  await expect(page).toHaveTitle(/^Part\d+ - Parametric$/);
+  void page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.commands.run('open'); });
+  await page.getByRole('dialog', { name: 'Open' }).getByRole('button', { name: new RegExp(`^${name} This browser`) }).click();
+  await expect(page).toHaveTitle(`${name} - Parametric`);
+  for (const n of [/^Slider1/, /^Hinge1/, /^Cam1/]) await expect(tree.getByRole('treeitem', { name: n })).not.toHaveAttribute('aria-description', /Error|Suppressed/);
+  await expect(tree.getByRole('treeitem', { name: /^Universal Joint1/ })).toHaveAttribute('aria-description', /Suppressed/);
+  // Edited from the tree, the cam shows its faces and follower.
+  await tree.getByRole('treeitem', { name: /^Cam1/ }).dblclick();
+  await expect(pm.getByRole('group', { name: 'Cam faces' })).toContainText('Face (cylinder) of Cam<1>');
+  await expect(pm.getByRole('group', { name: 'Follower' })).toContainText('Face (plane) of Bar<1>');
+  expect(await axeViolations(page)).toEqual([]);
   await pm.getByRole('button', { name: 'Cancel' }).click();
   expect(errors).toEqual([]);
 });

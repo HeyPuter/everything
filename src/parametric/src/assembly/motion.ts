@@ -13,11 +13,11 @@
 // differences.
 
 import type { Quat, Vec3 } from '../math/vec';
-import { add, dot, len, normalize, qMul } from '../math/vec';
+import { add, dot, len, normalize, qMul, qRotate } from '../math/vec';
 import type { MotionMotor, Placement } from '../model/assembly';
 import type { Id } from '../model/types';
 import {
-  CONFLICT_TOL, type Drive, type Geo, MateSolver, type SolverBody, type SolverEntity, type SolverMate, applyPlacement, mateBodies, matesMoving, mateMeasure, placeGeo, quatRotVec,
+  CONFLICT_TOL, type Drive, type Geo, MateSolver, type SolverBody, type SolverEntity, type SolverMate, applyPlacement, mateBodies, matesMoving, mateMeasure, placeGeo, quatRotVec, sliderDirection,
 } from './solver';
 
 /** A motor ready to run: what it moves and its motion over time. */
@@ -30,6 +30,8 @@ export interface MotorInput {
   entity?: SolverEntity;
   /** Mate driver: the mate whose value it sets. */
   mate?: Id;
+  /** A rotary motor on a hinge, a linear one on a slider: it turns or slides the mate's second component relative to its first. */
+  on?: SolverMate;
   /** Rotary: the turn (radians); linear: the travel (mm), from the start of the study. Mate driver: the mate's value (mm or degrees). */
   at: (t: number) => number;
 }
@@ -117,7 +119,7 @@ export class MotionRun {
     const floating = new Set(setup.bodies.filter((b) => !b.fixed).map((b) => b.id));
     for (const m of setup.motors) {
       // (A fixed component links nothing: from it, every mate to the ground would be solved.)
-      const ids = (m.body ? [m.body] : setup.mates.filter((x) => x.id === m.mate).flatMap(mateBodies)).filter((id) => floating.has(id));
+      const ids = (m.on ? mateBodies(m.on) : m.body ? [m.body] : setup.mates.filter((x) => x.id === m.mate).flatMap(mateBodies)).filter((id) => floating.has(id));
       for (const id of ids) for (const x of matesMoving(id, setup.bodies, setup.mates)) moving.add(x);
     }
     this.solverMates = setup.mates.filter((x) => moving.has(x));
@@ -148,6 +150,7 @@ export class MotionRun {
         mates = mates.map((x) => (x.id === m.mate ? { ...x, value: v } : x));
         continue;
       }
+      if (m.on) { const d = mountedDrive(m.on, prev, s.bodies, m.kind, m.at(t1) - m.at(t0)); if (d) drives.push(d); continue; }
       if (!m.body || !m.entity) continue;
       const g = placeGeo(m.entity.geo, m.entity.body ? prev.get(m.entity.body) ?? null : null);
       const dir = directionOf(g);
@@ -191,6 +194,29 @@ export class MotionRun {
     return { time, kind: 'locked', mate: worst && w > CONFLICT_TOL ? worst : undefined, message: `The mechanism locks up at ${time} s${which}: the motors ask for a motion the mates do not allow.` };
   }
 }
+
+/**
+ * The drive of a motor on a hinge or slider: the second component turns
+ * about the hinge's axis, or slides along the slider, relative to the first
+ * (in the first's coordinates). When the second is fixed, the first moves
+ * the other way, measured in the second's coordinates.
+ */
+function mountedDrive(on: SolverMate, prev: Map<Id, Placement>, bodies: SolverBody[], kind: MotorInput['kind'], amount: number): Drive | null {
+  const fixed = (id: Id | null) => !id || !!bodies.find((b) => b.id === id)?.fixed;
+  const dir = kind === 'rotary' ? (on.a.geo.kind === 'axis' || on.a.geo.kind === 'line' ? normalize(on.a.geo.d) : null) : sliderDirection(on);
+  if (!dir) return null;
+  const pa = (on.a.body && prev.get(on.a.body)) || IDENT, pb = (on.b.body && prev.get(on.b.body)) || IDENT;
+  const pointB = pointOfGeo(on.b.geo) ?? [0, 0, 0], pointA = pointOfGeo(on.a.geo) ?? [0, 0, 0];
+  if (!fixed(on.b.body)) {
+    return kind === 'rotary' ? { kind: 'relTurn', body: on.b.body!, base: on.a.body, axis: dir, amount } : { kind: 'relSlide', body: on.b.body!, base: on.a.body, local: pointB, dir, amount };
+  }
+  if (fixed(on.a.body)) return null;
+  // a's direction in b's coordinates (where they are now).
+  const inB = qRotate([-pb.q[0], -pb.q[1], -pb.q[2], pb.q[3]], qRotate(pa.q, dir));
+  return kind === 'rotary' ? { kind: 'relTurn', body: on.a.body!, base: on.b.body, axis: inB, amount: -amount } : { kind: 'relSlide', body: on.a.body!, base: on.b.body, local: pointA, dir: inB, amount: -amount };
+}
+
+const IDENT: Placement = { p: [0, 0, 0], q: [0, 0, 0, 1] };
 
 const directionOf = (g: Geo): Vec3 | null => (g.kind === 'plane' ? normalize(g.n) : g.kind === 'axis' || g.kind === 'line' ? normalize(g.d) : null);
 const pointOfGeo = (g: Geo): Vec3 | null => (g.kind === 'plane' ? g.o : g.kind === 'axis' || g.kind === 'line' || g.kind === 'point' ? g.p : g.kind === 'sphere' ? g.c : null);

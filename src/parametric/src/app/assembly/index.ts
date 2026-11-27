@@ -44,6 +44,9 @@ addIcons({
   'mate:screw': Bolt as unknown as IconNode,
   'mate:width': [['path', { d: 'M4 4v16M20 4v16' }], ['rect', { x: 9, y: 7, width: 6, height: 10, rx: 0.5, class: 'a' }], ['path', { d: 'M5.5 12h2M16.5 12h2' }]],
   'mate:slot': [['path', { d: 'M7 8h10a4 4 0 0 1 0 8H7a4 4 0 0 1 0-8z' }], ['circle', { cx: 9, cy: 12, r: 2, class: 'a' }]],
+  'mate:slider': [['path', { d: 'M3 16h18' }], ['rect', { x: 8, y: 7, width: 8, height: 7, rx: 0.5, class: 'a' }], ['path', { d: 'M4 11l-2 2 2 2M20 11l2 2-2 2' }]],
+  'mate:cam': [['path', { d: 'M12 20c-5 0-7-3-7-6 0-4 3-11 7-11s7 7 7 11c0 3-2 6-7 6z', class: 'a' }], ['circle', { cx: 12, cy: 14, r: 1.5 }]],
+  'mate:universal': [['path', { d: 'M3 18l6-6M21 18l-6-6' }], ['circle', { cx: 12, cy: 10, r: 3.5, class: 'a' }], ['path', { d: 'M12 6.5v7M8.5 10h7' }]],
   motionStudy: Clapperboard as unknown as IconNode,
   play: [['path', { d: 'M7 4l13 8-13 8z', class: 'a' }]],
   pause: [['path', { d: 'M7 4h3v16H7zM14 4h3v16h-3z', class: 'a' }]],
@@ -122,7 +125,7 @@ export function installAssembly(app: App, files: FileOps, hooks: AppHooks) {
       },
     },
     {
-      id: 'mate', label: 'Mate', icon: 'mate', keywords: 'constraint coincident concentric distance angle parallel assembly limit hinge gear rack pinion screw width slot mechanical', description: 'Position components relative to each other with mates.',
+      id: 'mate', label: 'Mate', icon: 'mate', keywords: 'constraint coincident concentric distance angle parallel assembly limit hinge slider prismatic gear rack pinion screw width slot cam follower universal joint mechanical', description: 'Position components relative to each other with mates.',
       enabled: () => asm() && hasComps(),
       run: () => openPanelWhenBuilt(() => new MatePanel(mode()!)),
     },
@@ -295,11 +298,12 @@ export function installAssembly(app: App, files: FileOps, hooks: AppHooks) {
       const ids = app.tree.targets(mate.id).filter((x) => d.mates.some((y) => y.id === x));
       // Gears and racks turn the other way round; mates of directions flip their alignment.
       const reverses = mate.type === 'gear' || mate.type === 'rackPinion';
-      const aligns = !['perpendicular', 'lock', 'tangent', 'width', 'slot'].includes(mate.type) && !reverses;
+      const aligns = !['perpendicular', 'lock', 'tangent', 'width', 'slot', 'cam', 'universal'].includes(mate.type) && !reverses;
       return [
         { label: 'Edit Mate', icon: 'edit', run: () => m.edit(mate.id) },
         { label: 'Rename', icon: 'text', shortcut: 'F2', run: () => app.startRename(mate.id) },
         ...(aligns ? [{ label: 'Flip Mate Alignment', icon: 'reset', run: () => m.commit('Flip alignment', (x) => { for (const y of x.mates) if (y.id === mate.id) y.aligned = !y.aligned; }) } as MenuItem] : []),
+        ...(mate.type === 'cam' ? [{ label: 'Flip Follower Face', icon: 'reset', run: () => m.commit('Flip follower', (x) => { for (const y of x.mates) if (y.id === mate.id) y.flip = y.flip ? undefined : true; }) } as MenuItem] : []),
         ...(reverses ? [{ label: 'Reverse Direction', icon: 'reset', run: () => m.commit('Reverse direction', (x) => { for (const y of x.mates) if (y.id === mate.id) y.reverse = y.reverse ? undefined : true; }) } as MenuItem] : []),
         { label: mate.suppressed ? 'Unsuppress' : 'Suppress', icon: mate.suppressed ? 'eye' : 'eyeOff', run: () => m.commit(mate.suppressed ? 'Unsuppress' : 'Suppress', (x) => { for (const y of x.mates) if (ids.includes(y.id)) y.suppressed = mate.suppressed ? undefined : true; }) },
         sep,

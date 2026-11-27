@@ -10,13 +10,15 @@ import { KernelRestartError } from '../../kernel/client';
 import { type Quat, type Vec3, add, cross, dot, normalize, qAxisAngle, qMul, scale, sub } from '../../math/vec';
 import { DocStore, parseDocument } from '../../model/document';
 import { BASE_FRAMES, BASE_PLANE_NAMES } from '../../model/planes';
-import type { Id, PartDocument } from '../../model/types';
+import type { FaceRef, Id, PartDocument } from '../../model/types';
 import { UNIT_SYSTEMS } from '../../model/units';
 import {
   type AsmComponent, type AsmPart, type AssemblyDocument, type ExplodeStep, type Mate, type MateRef, type MotionStudy, type Placement, MATE_LABELS, PartCache, asAssembly, mateComps, mateRefs,
 } from '../../model/assembly';
 import { type ComposedModel, type PartGeometry, combinedName, composeModel, edgeGeo, faceGeo, findEdge, findFace, placementMatrix } from '../../assembly/compose';
-import { type AnalysisResult, type DragGoal, type Geo, MateSolver, type SolverBody, type SolverEntity, type SolverMate, applyPlacement, matesMoving } from '../../assembly/solver';
+import {
+  type AnalysisResult, type CamProfile, type DragGoal, type Geo, MateSolver, type ProfileArc, type SolverBody, type SolverEntity, type SolverMate, applyPlacement, camProfile, mateBodies, matesMoving,
+} from '../../assembly/solver';
 import { type MotionResult, type MotionSetup, type MotorInput, MotionRun, profileOf } from '../../assembly/motion';
 import { parseColor } from '../../platform/theme';
 import { confirmDialog, toast } from '../../ui/overlay';
@@ -204,7 +206,34 @@ export class AssemblyMode {
       }
       return geo ? { body: c.id, geo } : `The ${'face' in ref ? 'face' : 'edge'} it references on ${c.name} cannot be mated`;
     }
+    if ('point' in ref) return { body: c.id, geo: { kind: 'point', p: ref.point } };
     return { body: c.id, geo: { kind: 'body' } };
+  }
+
+  /** Cam profiles by part copy and faces (a drag step solves the mates many times). */
+  private profiles = new Map<string, CamProfile | string>();
+
+  /**
+   * A cam mate's profile: its faces swept along one direction, as arcs (round
+   * faces, their extent from their circular edges) and corners (the other
+   * faces' edges and mesh vertices), in the cam's coordinates.
+   */
+  camEntity(m: Mate, doc = this.doc): SolverEntity | string {
+    if (!('face' in m.a)) return 'A cam mate needs the faces of the cam\'s profile';
+    const c = doc.components.find((x) => x.id === (m.a as { comp: Id }).comp);
+    if (!c) return 'Its component was deleted';
+    const g = this.geometryOf(c.part);
+    const part = doc.parts.find((p) => p.id === c.part);
+    if (!g || !part) return `${c.name} is not built`;
+    const refs = [m.a.face, ...m.chain ?? []];
+    const key = `${this.key(part)}|${JSON.stringify(refs)}`;
+    let prof = this.profiles.get(key);
+    if (!prof) {
+      prof = camProfileOf(g, refs, c.name);
+      if (this.profiles.size > 50) this.profiles.clear();
+      this.profiles.set(key, prof);
+    }
+    return typeof prof === 'string' ? prof : { body: c.id, geo: prof };
   }
 
   /** Mate value in mm or degrees (a gear's teeth when its ratio is by teeth). */
@@ -233,11 +262,10 @@ export class AssemblyMode {
     const inactive = new Set<Id>();
     for (const m of doc.mates) {
       if (m.suppressed || mateComps(m).some((id) => doc.components.find((c) => c.id === id)?.suppressed)) { inactive.add(m.id); continue; }
-      const ents = mateRefs(m).map((r) => this.entity(r, doc));
+      const ents = [m.type === 'cam' ? this.camEntity(m, doc) : this.entity(m.a, doc), this.entity(m.b, doc), m.a2 && this.entity(m.a2, doc), m.b2 && this.entity(m.b2, doc)];
       const bad = ents.find((e): e is string => typeof e === 'string');
       if (bad) { problems.set(m.id, bad); continue; }
-      const [a, b] = ents as SolverEntity[];
-      const a2 = m.a2 ? (ents[2] as SolverEntity) : undefined, b2 = m.b2 ? (ents[ents.length - 1] as SolverEntity) : undefined;
+      const [a, b, a2, b2] = ents as (SolverEntity | undefined)[] as [SolverEntity, SolverEntity, SolverEntity | undefined, SolverEntity | undefined];
       let value = 0, value2: number | undefined, limit: { min: number; max: number } | undefined;
       try {
         value = this.mateValue(m);
@@ -448,7 +476,29 @@ export class AssemblyMode {
       const e = g?.edges[m.edgeLocal[it.index]];
       return c && e ? { comp: c.id, edge: { name: e.name, sig: { type: e.type, m: e.mid, len: e.length } } } : null;
     }
+    if (it.kind === 'vertex') {
+      const v = this.vertexOf(it.p);
+      return v ? { comp: v.comp, point: v.local } : null;
+    }
     return null;
+  }
+
+  /** The component a picked vertex is a vertex of, and where it is in its part. */
+  vertexOf(p: Vec3): { comp: Id; local: Vec3 } | null {
+    let best: { comp: Id; local: Vec3 } | null = null, bestD = Infinity;
+    for (const c of this.doc.components) {
+      const g = !c.suppressed && !c.hidden ? this.geometryOf(c.part) : null;
+      const pl = g?.mesh && this.shownPlacement(c.id);
+      if (!g?.mesh || !pl) continue;
+      const q: Quat = [-pl.q[0], -pl.q[1], -pl.q[2], pl.q[3]];
+      const local = rotateBy(q, sub(p, pl.p));
+      const vs = g.mesh.vertices;
+      for (let k = 0; k < vs.length; k += 3) {
+        const d = Math.hypot(vs[k] - local[0], vs[k + 1] - local[1], vs[k + 2] - local[2]);
+        if (d < bestD) { bestD = d; best = { comp: c.id, local: [vs[k], vs[k + 1], vs[k + 2]] }; }
+      }
+    }
+    return best && bestD < 1e-3 * Math.max(1, this.scale()) ? best : null;
   }
 
   /** The item a mate reference shows as (to highlight it). */
@@ -460,6 +510,10 @@ export class AssemblyMode {
     if ('face' in ref) {
       const i = this.combinedFace(c.id, findFace(g.faces, ref.face));
       return i >= 0 ? { kind: 'face', index: i, name: combinedName(c.id, ref.face.name) } : null;
+    }
+    if ('point' in ref) {
+      const pl = this.shownPlacement(c.id);
+      return pl ? { kind: 'vertex', p: applyPlacement(pl, ref.point) } : null;
     }
     if ('edge' in ref) {
       const m = this.model;
@@ -673,6 +727,17 @@ export class AssemblyMode {
           inputs.push({ id: mo.id, name: mo.name, kind: 'mate', mate: mt.id, at: profileOf('mate', values(mt.type === 'angle' ? 'angle' : 'length'), st.duration, sm.value) });
           continue;
         }
+        if (mo.mate) {
+          // On a hinge (rotary) or a slider (linear): its second component turns or slides relative to its first.
+          const mt = this.doc.mates.find((x) => x.id === mo.mate);
+          const sm = held.find((x) => x.id === mo.mate);
+          const want = mo.kind === 'rotary' ? 'hinge' : 'slider';
+          if (!mt || mt.type !== want) return `${mo.name}: a ${mo.kind} motor goes on a ${want} mate.`;
+          if (!sm) return `${mo.name}: ${mt.name} does not hold (suppressed, or with an error). Fix it to drive it.`;
+          if (mateBodies(sm).every((id) => this.component(id)?.fixed)) return `${mo.name}: both components of ${mt.name} are fixed.`;
+          inputs.push({ id: mo.id, name: mo.name, kind: mo.kind, on: sm, at: profileOf(mo.kind, values(mo.kind === 'rotary' ? 'angle' : 'length'), st.duration) });
+          continue;
+        }
         const e = mo.ref ? this.entity(mo.ref) : 'It has no axis or direction';
         if (typeof e === 'string') return `${mo.name}: ${e}.`;
         const comp = e.body ? this.component(e.body) : undefined;
@@ -741,6 +806,40 @@ export class AssemblyMode {
 }
 
 /** Lets the browser handle input and paint before going on (a message, not a timer: timers are slowed in background tabs). */
+/** A cam's profile from the faces of its part, or why it cannot be one. */
+function camProfileOf(g: PartGeometry, refs: FaceRef[], name: string): CamProfile | string {
+  const arcs: ProfileArc[] = [], points: Vec3[] = [];
+  let d: Vec3 | null = null;
+  const normals: Vec3[] = [];
+  for (const ref of refs) {
+    const i = findFace(g.faces, ref);
+    if (i < 0) return `A face of the cam's profile on ${name} no longer exists`;
+    const f = g.faces[i];
+    const edges = g.edges.filter((e) => e.faces.includes(i));
+    if (f.type === 'cylinder' && f.axis && f.radius) {
+      const ax = normalize(f.axis.d);
+      if (d && Math.abs(dot(d, ax)) < 0.9999) return 'The faces of the cam\'s profile must all run along one direction (the cam\'s sides)';
+      d ??= ax;
+      // Its extent from a circular edge: a whole circle closes on itself.
+      const e = edges.find((x) => x.type === 'circle' && x.radius && Math.abs(x.radius - f.radius!) < 1e-6 * Math.max(1, f.radius!));
+      const whole = !e || Math.abs(e.length - 2 * Math.PI * f.radius) < 1e-6 * f.radius;
+      arcs.push({ c: f.axis.p, r: f.radius, ...(whole ? {} : { ends: [e!.a, e!.b, e!.mid] as [Vec3, Vec3, Vec3] }) });
+      continue;
+    }
+    if (f.type === 'plane' && f.normal) normals.push(normalize(f.normal));
+    for (const e of edges) points.push(e.a, e.b, e.mid);
+    // Curved faces of other kinds: their mesh vertices (as close as the mesh is to the face).
+    const m = g.mesh;
+    if (m && f.type !== 'plane') for (let k = 0; k < m.vertexFace.length; k++) if (m.vertexFace[k] === i) points.push([m.positions[k * 3], m.positions[k * 3 + 1], m.positions[k * 3 + 2]]);
+  }
+  if (!d) {
+    for (let i = 0; i < normals.length && !d; i++) for (let j = i + 1; j < normals.length && !d; j++) { const x = cross(normals[i], normals[j]); if (Math.hypot(...x) > 1e-3) d = normalize(x); }
+  }
+  if (!d) return 'Select the faces around the cam (its sides): their direction cannot be told from these';
+  if (normals.some((n) => Math.abs(dot(n, d!)) > 1e-6)) return 'The faces of the cam\'s profile must all run along one direction (the cam\'s sides, not its ends)';
+  return camProfile(d, arcs, points);
+}
+
 function yieldToUI(): Promise<void> {
   return new Promise((resolve) => {
     const ch = new MessageChannel();

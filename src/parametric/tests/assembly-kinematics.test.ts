@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type Geo, MateSolver, type SolverBody, type SolverMate, applyPlacement, mateBodies, mateMeasure, matesMoving, placeGeo, relativePlacement, turnAbout } from '../src/assembly/solver';
+import { type Geo, MateSolver, type SolverBody, type SolverMate, applyPlacement, camProfile, mateBodies, mateMeasure, matesMoving, placeGeo, relativePlacement, turnAbout } from '../src/assembly/solver';
 import { type MotorInput, MotionRun, computeMotion, degreesAbout, derivatives, mateSeries, pointPath, profileOf, resultsCsv, turnPath, vectorDerivatives } from '../src/assembly/motion';
 import { type Quat, type Vec3, dot, len, normalize, qAxisAngle, qRotate, sub } from '../src/math/vec';
 import type { MateType, Placement } from '../src/model/assembly';
@@ -351,5 +351,170 @@ describe('motion studies', () => {
     expect(d2[0]).toBeCloseTo(2, 9);
     expect(resultsCsv([{ name: 'Time (s)', values: [0, 0.5] }, { name: 'X, mm', values: [1, 2.25] }])).toBe('Time (s),"X, mm"\n0,1\n0.5,2.25');
     expect(len(sub(pointPath({ times: [0], frames: [new Map([['a', { p: [1, 2, 3], q: [0, 0, 0, 1] }]])], stop: null, duration: 1 }, 'a', [1, 0, 0])[0], [2, 2, 3]))).toBe(0);
+  });
+});
+
+describe('slider, cam and universal joint mates', () => {
+  const X: Vec3 = [1, 0, 0], Y: Vec3 = [0, 1, 0];
+  const line = (p: Vec3, d: Vec3): Geo => ({ kind: 'line', p, d });
+  const at0: Placement = { p: [0, 0, 0], q: [0, 0, 0, 1] };
+  /** A slider of `b` along x on the ground's x axis (straight edges), from where b is. */
+  const slider = (b: SolverBody, extra: Partial<SolverMate> = {}) => mate('slider', ['g', line([0, 0, 0], X)], [b.id, line([0, 0, 0], X)], { rel: relativePlacement(at0, b.placement), ...extra });
+
+  it('a slider on straight edges leaves one move along them, no turn, and stops at its travel limits', () => {
+    const blk = body('blk', false, [5, 3, -2]);
+    const s = new MateSolver([body('g', true), blk], [slider(blk, { limit: { min: -10, max: 20 } })]);
+    const r = s.analyze();
+    expect(r.status).toBe('under');
+    expect(r.dof).toBe(1);
+    const p = r.placements.get('blk')!;
+    expect(Math.hypot(p.p[1], p.p[2])).toBeLessThan(1e-6);
+    expect(p.q[3]).toBeCloseTo(1, 9);
+    // Dragged up and along: it only slides, and stops 20 mm from where it was added.
+    let pl = r.placements;
+    for (let k = 1; k <= 8; k++) pl = s.solve({ drag: { kind: 'move', body: 'blk', local: [0, 0, 0], target: [5 + 5 * k, 30, 0] } }, s.mates, pl).placements;
+    expect(pl.get('blk')!.p[0]).toBeCloseTo(25, 4);
+    expect(pl.get('blk')!.p[1]).toBeCloseTo(0, 6);
+    expect(mateMeasure(s.mates[0], pl)!.value).toBeCloseTo(20, 4);
+    // A turn about the edge is held too.
+    const turned = s.solve({ drag: { kind: 'rotate', body: 'blk', q: qAxisAngle(X, 0.8) } }, s.mates, pl);
+    expect(turned.placements.get('blk')!.q[3]).toBeCloseTo(1, 6);
+  });
+
+  it('a slider on two faces of each component slides along the line where they meet', () => {
+    const m = mate('slider', ['g', plane([0, 0, 0], Y)], ['blk', plane([0, 0, 0], [0, -1, 0])], {
+      a2: { body: 'g', geo: plane([0, 0, 0], Z) }, b2: { body: 'blk', geo: plane([0, 0, 0], [0, 0, -1]) }, aligned: false, aligned2: false, rel: at0,
+    });
+    const r = new MateSolver([body('g', true), body('blk', false, [7, 4, 3], qAxisAngle(normalize([1, 1, 1]), 0.2))], [m]).analyze();
+    expect(r.dof).toBe(1);
+    const p = r.placements.get('blk')!;
+    expect(Math.hypot(p.p[1], p.p[2])).toBeLessThan(1e-6);
+    const bad = { ...m, a2: { body: 'g', geo: plane([0, 5, 0], Y) } };
+    expect(new MateSolver([body('g', true), body('blk', false)], [bad]).analyze().invalid.get(bad.id)).toMatch(/must not be parallel/);
+  });
+
+  it('motors on a slider and on a hinge drive them directly', () => {
+    const blk = body('blk', false, [0, 0, 0]);
+    const sl = slider(blk);
+    const lin: MotorInput = { id: 'mo', name: 'LinearMotor1', kind: 'linear', on: sl, at: profileOf('linear', { profile: 'constant', speed: 4 }, 3) };
+    const res = computeMotion({ bodies: [body('g', true), blk], mates: [sl], motors: [lin], duration: 3, fps: 10, scale: 100 });
+    expect(res.stop).toBeNull();
+    res.frames.forEach((f, i) => expect(f.get('blk')!.p[0]).toBeCloseTo(4 * res.times[i], 6));
+    // A hinge whose second component is fixed: the first turns, the other way.
+    const h = hinge('arm', [0, 0, 0], 'g', [0, 0, 0]);
+    const rot: MotorInput = { id: 'mo', name: 'RotaryMotor1', kind: 'rotary', on: h, at: profileOf('rotary', { profile: 'constant', speed: 90 }, 1) };
+    const r2 = computeMotion({ bodies: [body('g', true), body('arm', false)], mates: [h], motors: [rot], duration: 1, fps: 20, scale: 100 });
+    expect(r2.stop).toBeNull();
+    expect(degreesAbout(turnPath(r2, 'arm'), Z)[20]).toBeCloseTo(-90, 5);
+  });
+
+  /** A cam turning on a hinge about z at the origin; a follower sliding along y on the line x = 0. */
+  const camRig = (profile: Geo, follower: Geo, y0: number) => {
+    const fol = body('fol', false, [0, y0, 0]);
+    const mates = [
+      hinge('g', [0, 0, 0], 'cam', [0, 0, 0]),
+      mate('slider', ['g', line([0, 0, 0], Y)], ['fol', line([0, 0, 0], Y)], { rel: relativePlacement(at0, fol.placement) }),
+      mate('cam', ['cam', profile], ['fol', follower]),
+    ];
+    const drive: MotorInput = { id: 'mo', name: 'RotaryMotor1', kind: 'rotary', on: mates[0], at: profileOf('rotary', { profile: 'constant', speed: 90 }, 4) };
+    return { bodies: [body('g', true), body('cam', false), fol], mates, motors: [drive] };
+  };
+  const e = 6, R = 20;
+  /** An eccentric: a round face of radius R whose axis is e from the turning axis (its low side up at first). */
+  const eccentric = camProfile(Z, [{ c: [0, -e, 0], r: R }], []);
+
+  it('an eccentric cam lifts a flat follower by e(1 − cos θ) over a turn', () => {
+    expect(eccentric.circle).not.toBeNull();
+    const rig = camRig(eccentric, plane([0, 0, 0], [0, -1, 0]), R - e);
+    expect(new MateSolver(rig.bodies, rig.mates).analyze().dof).toBe(1);
+    const res = computeMotion({ ...rig, duration: 4, fps: 60, scale: 100 });
+    expect(res.stop).toBeNull();
+    const theta = degreesAbout(turnPath(res, 'cam'), Z).map((d) => (d * Math.PI) / 180);
+    expect(theta[240]).toBeCloseTo(2 * Math.PI, 6);
+    res.frames.forEach((f, i) => expect(f.get('fol')!.p[1] - (R - e)).toBeCloseTo(e * (1 - Math.cos(theta[i])), 7));
+  });
+
+  it('roller and knife-edge followers on an eccentric match the closed form', () => {
+    const rho = 5;
+    const lift = (th: number, r: number) => { const cx = e * Math.sin(th), cy = -e * Math.cos(th); return cy + Math.sqrt(r * r - cx * cx); };
+    for (const [follower, r] of [[axis([0, 0, 0], Z, rho), R + rho], [{ kind: 'point', p: [0, 0, 0] } as Geo, R]] as [Geo, number][]) {
+      const rig = camRig(eccentric, follower, r - e);
+      const res = computeMotion({ ...rig, duration: 4, fps: 60, scale: 100 });
+      expect(res.stop).toBeNull();
+      const theta = degreesAbout(turnPath(res, 'cam'), Z).map((d) => (d * Math.PI) / 180);
+      res.frames.forEach((f, i) => expect(f.get('fol')!.p[1]).toBeCloseTo(lift(theta[i], r), 7));
+    }
+  });
+
+  it('a lobed cam (arcs and corners) lifts a flat follower to its nose; a hollow profile is refused', () => {
+    // A base circle of 20 and a nose of 5 at 25 above the axis, joined by tangent lines (touching both at 90° ± 53.13°).
+    const p = (r: number, deg: number, c: Vec3 = [0, 0, 0]): Vec3 => [c[0] + r * Math.cos((deg * Math.PI) / 180), c[1] + r * Math.sin((deg * Math.PI) / 180), 0];
+    const t = (Math.acos(0.6) * 180) / Math.PI, nose: Vec3 = [0, 25, 0];
+    const lobed = camProfile(Z, [{ c: [0, 0, 0], r: 20, ends: [p(20, 90 + t), p(20, 90 - t), p(20, 270)] }, { c: nose, r: 5, ends: [p(5, 90 - t, nose), p(5, 90 + t, nose), p(5, 90, nose)] }], []);
+    expect(lobed.concave).toBeLessThan(1e-9);
+    const rig = camRig(lobed, plane([0, 0, 0], [0, -1, 0]), 30);
+    const res = computeMotion({ ...rig, duration: 2, fps: 60, scale: 100 });
+    expect(res.stop).toBeNull();
+    expect(res.frames[0].get('fol')!.p[1]).toBeCloseTo(30, 6);
+    // Half a turn: the base circle under the follower.
+    expect(res.frames[120].get('fol')!.p[1]).toBeCloseTo(20, 7);
+    // A notch: corners of a square with one side dented in.
+    const notched = camProfile(Z, [], [[-10, -10, 0], [10, -10, 0], [10, 10, 0], [0, 4, 0], [-10, 10, 0]]);
+    expect(notched.concave).toBeCloseTo(6, 9);
+    const bad = new MateSolver(rig.bodies, [...rig.mates.slice(0, 2), mate('cam', ['cam', notched], ['fol', plane([0, 0, 0], [0, -1, 0])])]).analyze();
+    expect([...bad.invalid.values()][0]).toMatch(/hollow 6 mm deep/);
+  });
+
+  /** Two shafts on hinges, meeting at the origin: a along z, b at β to it in the xz plane. */
+  const uJoint = (betaDeg: number) => {
+    const b = (betaDeg * Math.PI) / 180;
+    const db: Vec3 = [Math.sin(b), 0, Math.cos(b)];
+    const qb = qAxisAngle(Y, b);
+    const bodies = [body('g', true), body('A', false), body('B', false, [0, 0, 0], qb)];
+    const mates = [
+      hinge('g', [0, 0, 0], 'A', [0, 0, 0]),
+      mate('hinge', ['g', { kind: 'axis', p: [0, 0, 0], d: db, r: 2, surface: 'cylinder' }], ['B', axis([0, 0, 0])], { a2: { body: 'g', geo: plane([0, 0, 0], db) }, b2: { body: 'B', geo: plane([0, 0, 0], [0, 0, -1]) }, aligned2: false }),
+      mate('universal', ['A', axis([0, 0, 0])], ['B', axis([0, 0, 0])], { rel: relativePlacement(at0, { p: [0, 0, 0], q: qb }) }),
+    ];
+    return { bodies, mates, db, b };
+  };
+
+  it('a universal joint turns its output by atan(tan φ / cos β) over a full turn, with that velocity ratio', () => {
+    const u = uJoint(30);
+    expect(new MateSolver(u.bodies, u.mates).analyze().dof).toBe(1);
+    const motor: MotorInput = { id: 'mo', name: 'RotaryMotor1', kind: 'rotary', on: u.mates[0], at: profileOf('rotary', { profile: 'constant', speed: 90 }, 4) };
+    const res = computeMotion({ bodies: u.bodies, mates: u.mates, motors: [motor], duration: 4, fps: 90, scale: 100 });
+    expect(res.stop).toBeNull();
+    const phi = degreesAbout(turnPath(res, 'A'), Z).map((d) => (d * Math.PI) / 180);
+    const out = degreesAbout(turnPath(res, 'B'), u.db).map((d) => (d * Math.PI) / 180);
+    // The closed form, unwrapped past ±90° and ±180°.
+    let prev = 0, acc = 0;
+    const expected = phi.map((f) => { const a = Math.atan2(Math.sin(f), Math.cos(u.b) * Math.cos(f)); let d = a - prev; d -= 2 * Math.PI * Math.round(d / (2 * Math.PI)); acc += d; prev = a; return acc; });
+    expect(phi[360]).toBeCloseTo(2 * Math.PI, 6);
+    out.forEach((v, i) => expect(v).toBeCloseTo(expected[i], 6));
+    expect(out[360]).toBeCloseTo(2 * Math.PI, 6);
+    // Velocity ratio from the frames against cos β / (cos²β cos²φ + sin²φ).
+    const w1 = derivatives(res.times, phi).d1, w2 = derivatives(res.times, out).d1;
+    for (const i of [0, 45, 90, 135, 200, 300]) {
+      const f = phi[i], k = Math.cos(u.b) / (Math.cos(u.b) ** 2 * Math.cos(f) ** 2 + Math.sin(f) ** 2);
+      expect(w2[i] / w1[i]).toBeCloseTo(k, 2);
+    }
+  });
+
+  it('a universal joint with straight shafts turns 1:1, and can hold its joint point', () => {
+    const u = uJoint(0);
+    const motor: MotorInput = { id: 'mo', name: 'RotaryMotor1', kind: 'rotary', on: u.mates[0], at: profileOf('rotary', { profile: 'constant', speed: 120 }, 3) };
+    const res = computeMotion({ bodies: u.bodies, mates: u.mates, motors: [motor], duration: 3, fps: 30, scale: 100 });
+    const a = degreesAbout(turnPath(res, 'A'), Z), b = degreesAbout(turnPath(res, 'B'), Z);
+    a.forEach((v, i) => expect(b[i]).toBeCloseTo(v, 6));
+    expect(a[90]).toBeCloseTo(360, 5);
+    // Free shafts with a joint point 10 along a's axis: b's axis passes through it.
+    const joint = mate('universal', ['A', axis([0, 0, 0])], ['B', axis([0, 0, 0])], { rel: relativePlacement(at0, { p: [3, 4, 30], q: qAxisAngle(Y, 0.4) }), by: 'point', value: 10 });
+    const r = new MateSolver([body('A', true), body('B', false, [3, 4, 30], qAxisAngle(Y, 0.4))], [joint]).analyze();
+    expect(r.dof).toBe(3);
+    const pb = r.placements.get('B')!;
+    const db = qRotate(pb.q, Z);
+    const off = sub([0, 0, 10], pb.p);
+    expect(len([off[1] * db[2] - off[2] * db[1], off[2] * db[0] - off[0] * db[2], off[0] * db[1] - off[1] * db[0]])).toBeLessThan(1e-6);
   });
 });

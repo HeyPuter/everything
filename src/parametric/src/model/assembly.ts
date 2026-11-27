@@ -67,14 +67,16 @@ export type MateType = 'coincident' | 'parallel' | 'perpendicular' | 'distance' 
  * relate motions, not positions, so they hold from wherever the components
  * are when they are added (see the solver).
  */
-export type MechanicalMateType = 'hinge' | 'gear' | 'rackPinion' | 'screw' | 'width' | 'slot';
-export const MECHANICAL_MATES: readonly MechanicalMateType[] = ['hinge', 'gear', 'rackPinion', 'screw', 'width', 'slot'];
+export type MechanicalMateType = 'hinge' | 'slider' | 'gear' | 'rackPinion' | 'screw' | 'width' | 'slot' | 'cam' | 'universal';
+export const MECHANICAL_MATES: readonly MechanicalMateType[] = ['hinge', 'slider', 'gear', 'rackPinion', 'screw', 'width', 'slot', 'cam', 'universal'];
 export const isMechanical = (t: MateType): t is MechanicalMateType => (MECHANICAL_MATES as readonly string[]).includes(t);
 
 /** What a mate references: a face or edge of a component (by name, as features reference faces), an assembly plane, or a whole component (lock). */
 export type MateRef =
   | { comp: Id; face: FaceRef }
   | { comp: Id; edge: EdgeRef }
+  /** A vertex of a component, in its part's coordinates (cam followers). */
+  | { comp: Id; point: Vec3 }
   | { comp: Id }
   | { plane: BasePlane };
 
@@ -91,17 +93,25 @@ export interface Mate {
   /** Distance and tangent mates: the second entity lies on the other side of the first. */
   flip?: boolean;
   suppressed?: boolean;
-  /** Lock mates: where b sits in a's frame. Hinges with angle limits: where b sat in a's frame at 0°. */
+  /**
+   * Lock mates: where b sits in a's frame. Hinges with angle limits: where b
+   * sat in a's frame at 0°. Sliders: where b sat when added (their turn is
+   * held, their travel measured from there). Universal joints: where the
+   * shafts were when added (the yokes' directions are taken from it).
+   */
   rel?: Placement;
   /**
    * The second pair of entities: a hinge's coincident faces (a2 on a's
    * component, b2 on b's), a width mate's groove (a, a2) and tab (b, b2)
-   * faces, a slot's two end faces (a, a2; b is the pin).
+   * faces, a slot's two end faces (a, a2; b is the pin), a slider's second
+   * planar face on each component.
    */
   a2?: MateRef;
   b2?: MateRef;
-  /** Hinge: alignment of the coincident faces (aligned is that of the axes). */
+  /** Hinge, slider: alignment of the second pair (aligned is that of the first). */
   aligned2?: boolean;
+  /** Cam: the profile's faces after a (all on a's component); b is the follower. */
+  chain?: FaceRef[];
   /**
    * Distance and angle mates: the entities move freely between these values
    * (value is where they were set up). Hinges: the turn from where the hinge
@@ -113,10 +123,12 @@ export interface Mate {
   /**
    * Gear: 'ratio' when the values are a ratio rather than pitch diameters.
    * Rack and pinion: 'revolution' when value is the rack's travel per turn
-   * rather than the pinion's pitch diameter.
+   * rather than the pinion's pitch diameter. Universal joint: 'point' when
+   * the shafts' axes meet at a joint point, value along a's axis from its
+   * entity.
    */
-  by?: 'ratio' | 'revolution';
-  /** Gear, rack and pinion: the other way round. Screw: a left-hand thread. */
+  by?: 'ratio' | 'revolution' | 'point';
+  /** Gear, rack and pinion: the other way round. Screw: a left-hand thread. Cam: the flat follower's other side. */
   reverse?: boolean;
 }
 
@@ -133,9 +145,9 @@ export interface MotionMotor {
   id: Id;
   name: string;
   kind: 'rotary' | 'linear' | 'mate';
-  /** Rotary and linear: the axis or direction, on the component it moves. */
+  /** Rotary and linear: the axis or direction, on the component it moves (or `mate`). */
   ref?: MateRef;
-  /** Mate driver: the distance or angle mate. */
+  /** Mate driver: the distance or angle mate. Rotary: a hinge it turns; linear: a slider it moves (b relative to a). */
   mate?: Id;
   profile: MotionProfile;
   /** Constant: speed (mm/s, deg/s, or rpm when `rpm`). */
@@ -187,7 +199,7 @@ export interface AssemblyDocument extends Omit<PartDocument, 'format' | 'feature
 export const MATE_LABELS: Record<MateType, string> = {
   coincident: 'Coincident', parallel: 'Parallel', perpendicular: 'Perpendicular', distance: 'Distance',
   angle: 'Angle', concentric: 'Concentric', tangent: 'Tangent', lock: 'Lock',
-  hinge: 'Hinge', gear: 'Gear', rackPinion: 'Rack Pinion', screw: 'Screw', width: 'Width', slot: 'Slot',
+  hinge: 'Hinge', slider: 'Slider', gear: 'Gear', rackPinion: 'Rack Pinion', screw: 'Screw', width: 'Width', slot: 'Slot', cam: 'Cam', universal: 'Universal Joint',
 };
 
 /** Distinct component colours, picked in turn for each new part. */
@@ -257,6 +269,7 @@ function validMateRef(v: unknown, comps: Set<string>): boolean {
   if (!isStr(v.comp) || !comps.has(v.comp)) return false;
   if ('face' in v) return validFaceRef(v.face);
   if ('edge' in v) return validEdgeRef(v.edge);
+  if ('point' in v) return isVec(v.point);
   return true;
 }
 
@@ -265,17 +278,26 @@ function validMateExtras(m: Record<string, unknown>, comps: Set<string>): boolea
   const t = m.type as MateType;
   const has = (k: string) => m[k] !== undefined;
   const isBool = (k: string) => !has(k) || typeof m[k] === 'boolean';
-  if (has('a2') && (!['hinge', 'width', 'slot'].includes(t) || !validMateRef(m.a2, comps))) return false;
-  if (has('b2') && (!['hinge', 'width'].includes(t) || !validMateRef(m.b2, comps))) return false;
+  if (has('a2') && (!['hinge', 'width', 'slot', 'slider'].includes(t) || !validMateRef(m.a2, comps))) return false;
+  if (has('b2') && (!['hinge', 'width', 'slider'].includes(t) || !validMateRef(m.b2, comps))) return false;
   if (!isBool('aligned2') || !isBool('reverse')) return false;
   if (has('value2') && (t !== 'gear' || !isParam(m.value2))) return false;
-  if (has('limit') && (!['distance', 'angle', 'hinge'].includes(t) || !isObj(m.limit) || !isParam(m.limit.min) || !isParam(m.limit.max))) return false;
-  if (has('by') && !((t === 'gear' && m.by === 'ratio') || (t === 'rackPinion' && m.by === 'revolution'))) return false;
+  if (has('limit') && (!['distance', 'angle', 'hinge', 'slider'].includes(t) || !isObj(m.limit) || !isParam(m.limit.min) || !isParam(m.limit.max))) return false;
+  if (has('by') && !((t === 'gear' && m.by === 'ratio') || (t === 'rackPinion' && m.by === 'revolution') || (t === 'universal' && m.by === 'point'))) return false;
+  // A cam's other profile faces: faces of its component.
+  if (has('chain') && (t !== 'cam' || !Array.isArray(m.chain) || m.chain.length > 500 || !m.chain.every(validFaceRef) || !isObj(m.a) || !('face' in m.a))) return false;
+  // Vertices are followers of cams only.
+  if ([m.a, m.a2, m.b2, ...(t === 'cam' ? [] : [m.b])].some((r) => isObj(r) && 'point' in r)) return false;
   if (!isMechanical(t)) return !has('aligned2') && !has('reverse');
-  // What each mechanical mate needs; its entities are faces, edges or planes (not whole components).
-  const needs: Record<MechanicalMateType, string[]> = { hinge: ['a2', 'b2'], width: ['a2', 'b2'], slot: ['a2'], gear: ['value', 'value2'], rackPinion: ['value'], screw: ['value'] };
+  // What each mechanical mate needs; its entities are faces, edges, vertices or planes (not whole components).
+  const needs: Record<MechanicalMateType, string[]> = {
+    hinge: ['a2', 'b2'], slider: ['rel'], width: ['a2', 'b2'], slot: ['a2'], gear: ['value', 'value2'], rackPinion: ['value'], screw: ['value'], cam: [], universal: ['rel'],
+  };
   if (needs[t].some((k) => !has(k))) return false;
-  return [m.a, m.b, m.a2, m.b2].every((r) => r === undefined || (isObj(r) && ('plane' in r || 'face' in r || 'edge' in r)));
+  // A slider takes one entity, or two faces, on each component; a joint point has its offset.
+  if (t === 'slider' && has('a2') !== has('b2')) return false;
+  if (t === 'universal' && (m.by === 'point') !== has('value')) return false;
+  return [m.a, m.b, m.a2, m.b2].every((r) => r === undefined || (isObj(r) && ('plane' in r || 'face' in r || 'edge' in r || 'point' in r)));
 }
 
 function validMotor(v: unknown, comps: Set<string>, mates: Set<string>): boolean {
@@ -285,8 +307,10 @@ function validMotor(v: unknown, comps: Set<string>, mates: Set<string>): boolean
   const need = v.profile === 'constant' ? ['speed'] : v.profile === 'oscillate' ? ['amplitude', 'frequency'] : ['from', 'to'];
   if (need.some((k) => v[k] === undefined)) return false;
   if (v.kind === 'mate') return isStr(v.mate) && mates.has(v.mate) && v.ref === undefined && v.rpm === undefined;
-  // Rotary and linear motors move the component of a face or edge, at a constant speed or back and forth.
-  return v.mate === undefined && v.profile !== 'ramp' && (v.rpm === undefined || v.kind === 'rotary') && isObj(v.ref) && isStr(v.ref.comp) && ('face' in v.ref || 'edge' in v.ref) && validMateRef(v.ref, comps);
+  // Rotary and linear motors move the component of a face or edge (or turn a hinge, move a slider), at a constant speed or back and forth.
+  if (v.profile === 'ramp' || (v.rpm !== undefined && v.kind !== 'rotary')) return false;
+  if (v.mate !== undefined) return isStr(v.mate) && mates.has(v.mate) && v.ref === undefined;
+  return isObj(v.ref) && isStr(v.ref.comp) && ('face' in v.ref || 'edge' in v.ref) && validMateRef(v.ref, comps);
 }
 
 function validSource(v: unknown): v is PartSource | null {
@@ -467,8 +491,11 @@ export function nextPartColor(doc: AssemblyDocument): string {
   return PART_COLORS.find((c) => !used.has(c)) ?? PART_COLORS[doc.parts.length % PART_COLORS.length];
 }
 
-/** The entities a mate references (its second pair too). */
-export const mateRefs = (m: Mate): MateRef[] => [m.a, m.b, ...(m.a2 ? [m.a2] : []), ...(m.b2 ? [m.b2] : [])];
+/** The entities a mate references (its second pair, and a cam's other faces, too). */
+export const mateRefs = (m: Mate): MateRef[] => [
+  m.a, m.b, ...(m.a2 ? [m.a2] : []), ...(m.b2 ? [m.b2] : []),
+  ...(m.chain && 'comp' in m.a ? m.chain.map((face) => ({ comp: (m.a as { comp: Id }).comp, face })) : []),
+];
 
 /** The components a mate references. */
 export function mateComps(m: Mate): Id[] {

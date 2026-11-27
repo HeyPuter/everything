@@ -8,7 +8,7 @@ import { type Vec3, add, normalize, qAxisAngle, qMul, scale } from '../../math/v
 import { allocateId, newDocument, parseDocument, serializeDocument } from '../../model/document';
 import { defaultName } from '../../model/features';
 import { BASE_PLANE_NAMES } from '../../model/planes';
-import type { Id, Param, PartDocument } from '../../model/types';
+import type { FaceRef, Id, Param, PartDocument } from '../../model/types';
 import { UNIT_SYSTEMS } from '../../model/units';
 import {
   type AssemblyDocument, type ExplodeStep, type Mate, type MateRef, type MateType, type MechanicalMateType, type PartSource, type Placement, MATE_LABELS, MECHANICAL_MATES, assemblyBom, bomCsv, instanceName,
@@ -203,6 +203,15 @@ const MECH_BOXES: Record<MechanicalMateType, { label: string; placeholder: strin
     { label: 'Slot ends', placeholder: 'Select the two round ends of the slot', count: 2, filter: { face: true, edge: true } },
     { label: 'Pin', placeholder: 'Select the pin (a round face or edge)', count: 1, filter: { face: true, edge: true } },
   ],
+  slider: [
+    { label: 'First component', placeholder: 'Select a straight edge or axis, or two planar faces, of one component', count: 2, filter: { face: true, edge: true, plane: true } },
+    { label: 'Second component', placeholder: 'Select the same on the component that slides', count: 2, filter: { face: true, edge: true } },
+  ],
+  cam: [
+    { label: 'Cam faces', placeholder: 'Select the faces around the cam (its profile)', count: 500, filter: { face: true } },
+    { label: 'Follower', placeholder: 'Select the follower: a vertex, a roller (round face or edge) or a flat face', count: 1, filter: { face: true, edge: true, vertex: true } },
+  ],
+  universal: [{ label: 'Shafts', placeholder: 'Select a round face or edge of each shaft (the input first)', count: 2, filter: { face: true, edge: true } }],
 };
 
 export class MatePanel extends PropertyPanel {
@@ -221,14 +230,14 @@ export class MatePanel extends PropertyPanel {
   private limitOn = false;
   private min: Param = 0;
   private max: Param = 10;
-  private by: 'ratio' | 'revolution' | null = null;
+  private by: 'ratio' | 'revolution' | 'point' | null = null;
   private reverse = false;
   private auto = true;
   private result = h('div', { class: 'pm-msg', role: 'status' });
 
   constructor(private mode: AssemblyMode, private existing: Mate | null = null) {
     super();
-    this.helpText = 'Select two faces, edges or planes of different components (or of a component and the assembly). Mates keep them together as you move things. Mechanical mates (hinge, gear, rack and pinion, screw, width, slot) are in the list of mate types.';
+    this.helpText = 'Select two faces, edges or planes of different components (or of a component and the assembly). Mates keep them together as you move things. Mechanical mates (hinge, slider, gear, rack and pinion, screw, width, slot, cam, universal joint) are in the list of mate types.';
     if (existing) {
       this.editingId = existing.id;
       this.type = existing.type;
@@ -245,6 +254,8 @@ export class MatePanel extends PropertyPanel {
       this.title = `Mate: ${existing.name}`;
       const t = existing.type;
       if (t === 'width' || t === 'slot') { this.refs = [existing.a, existing.a2!]; this.refs2 = [existing.b, ...(existing.b2 ? [existing.b2] : [])]; }
+      else if (t === 'slider') { this.refs = [existing.a, ...(existing.a2 ? [existing.a2] : [])]; this.refs2 = [existing.b, ...(existing.b2 ? [existing.b2] : [])]; }
+      else if (t === 'cam') { this.refs = [existing.a, ...(existing.chain ?? []).map((face) => ({ comp: (existing.a as { comp: Id }).comp, face }))]; this.refs2 = [existing.b]; }
       else if (t === 'hinge') { this.refs = [existing.a, existing.b]; this.refs2 = [existing.a2!, existing.b2!]; }
       else this.refs = [existing.a, existing.b];
     } else {
@@ -265,6 +276,7 @@ export class MatePanel extends PropertyPanel {
     const c = this.mode.component(r.comp)?.name ?? '?';
     if ('face' in r) return `Face (${r.face.sig.type}) of ${c}`;
     if ('edge' in r) return `Edge (${r.edge.sig.type}) of ${c}`;
+    if ('point' in r) return `Vertex of ${c}`;
     return c;
   }
 
@@ -293,6 +305,7 @@ export class MatePanel extends PropertyPanel {
   private limitAround(v: number) {
     if (this.type === 'angle') { this.min = Math.max(0, Math.round(v - 30)); this.max = Math.min(180, Math.round(v + 30)); }
     else if (this.type === 'hinge') { this.min = -45; this.max = 45; }
+    else if (this.type === 'slider') { this.min = -25; this.max = 25; }
     else { this.min = Math.max(0, Math.round((v - 10) * 1000) / 1000); this.max = Math.round((v + 10) * 1000) / 1000; }
   }
 
@@ -314,6 +327,12 @@ export class MatePanel extends PropertyPanel {
       if (ga && gb) this.aligned2 = initialMateSettings('coincident', ga, gb).aligned;
     }
     if (t === 'screw' && typeof this.value === 'number' && this.value === 10 && !this.existing) this.value = 1;
+    if (t === 'slider') {
+      // Each pair's alignment as the entities are now (the first entity of each component, then the second).
+      const al = (x?: MateRef, y?: MateRef) => { const gx = x && this.geo(x), gy = y && this.geo(y); return gx && gy ? initialMateSettings('coincident', gx, gy).aligned : null; };
+      this.aligned = al(this.refs[0], this.refs2[0]) ?? this.aligned;
+      this.aligned2 = al(this.refs[1], this.refs2[1]) ?? this.aligned2;
+    }
   }
 
   /** A hinge's two faces, the one on the first round entity's component first. */
@@ -339,7 +358,9 @@ export class MatePanel extends PropertyPanel {
           this.mechDefaults(mech);
           // A full box hands the picks on to the next one.
           const next = made[i + 1];
-          if (refs.length === spec.count && next && next.items.length < boxes[i + 1].count) this.activate(next);
+          // (A slider's component takes one edge or axis, or two faces.)
+          const axisOnly = mech === 'slider' && refs.length === 1 && (() => { const g = this.geo(refs[0]); return g?.kind === 'line' || g?.kind === 'axis'; })();
+          if ((refs.length === spec.count || axisOnly) && next && next.items.length < boxes[i + 1].count) this.activate(next);
           this.mode.app.refreshPanel();
           this.update();
         }, { placeholder: spec.placeholder, icon: 'mate', single: spec.count === 1 });
@@ -390,9 +411,9 @@ export class MatePanel extends PropertyPanel {
     if (!was && now) { this.refs2 = []; this.refs = this.refs.filter((r) => !('comp' in r) || 'face' in r || 'edge' in r).slice(0, 2); }
     if (was && !now) this.refs = this.refs.slice(0, 2);
     if (now === 'gear' && this.by === 'revolution') this.by = null;
-    if (now === 'rackPinion' && this.by === 'ratio') this.by = null;
-    if (!now && this.by) this.by = null;
-    if (this.limitOn && v !== 'distance' && v !== 'angle' && v !== 'hinge') this.limitOn = false;
+    if (this.by && !((now === 'gear' && this.by === 'ratio') || (now === 'rackPinion' && this.by === 'revolution') || (now === 'universal' && this.by === 'point'))) this.by = null;
+    if (now === 'universal' && !this.existing) this.value = 0;
+    if (this.limitOn && v !== 'distance' && v !== 'angle' && v !== 'hinge' && v !== 'slider') this.limitOn = false;
     this.pickDefaults();
     this.mode.app.refreshPanel();
     this.update();
@@ -487,6 +508,22 @@ export class MatePanel extends PropertyPanel {
           ...this.alignment(),
         );
         break;
+      case 'slider':
+        out.push(...this.alignment(), checkbox('Limit the travel (from where it is now)', this.limitOn, (v) => {
+          this.limitOn = v;
+          if (v) this.limitAround(0);
+          this.mode.app.refreshPanel();
+          this.update();
+        }));
+        if (this.limitOn) out.push(...this.limitFields('length', ctx));
+        break;
+      case 'cam':
+        if (this.refs2[0] && this.geo(this.refs2[0])?.kind === 'plane') out.push(checkbox('Flip the follower face (the cam on its other side)', this.flip, (v) => { this.flip = v; this.update(); }));
+        break;
+      case 'universal':
+        out.push(checkbox('Joint point: the shafts\' axes meet', this.by === 'point', (v) => { this.by = v ? 'point' : null; this.mode.app.refreshPanel(); this.update(); }));
+        if (this.by === 'point') out.push(numberField({ label: 'Joint point offset (along the first shaft)', icon: 'smartDimension', value: this.value, kind: 'length', ctx, onChange: (v) => { this.value = v; this.update(); } }));
+        break;
       default:
         break;
     }
@@ -536,9 +573,29 @@ export class MatePanel extends PropertyPanel {
   }
 
   private mechMate(t: MechanicalMateType, base: Omit<Mate, 'a' | 'b'>): Mate | null {
+    const [r0, r1] = this.refs;
+    // The position captured when the mate was added stays while its entities do.
+    const kept = (a: MateRef, b: MateRef) => (this.existing?.type === t && this.existing.rel && JSON.stringify([this.existing.a, this.existing.b]) === JSON.stringify([a, b]) ? this.existing.rel : this.relNow(a, b));
+    if (t === 'slider') {
+      const n = this.refs.length;
+      if (!n || n !== this.refs2.length) return null;
+      const rel = kept(r0, this.refs2[0]);
+      return {
+        ...base, a: r0, b: this.refs2[0], ...(n === 2 ? { a2: r1, b2: this.refs2[1], aligned2: this.aligned2 } : {}),
+        ...(this.limitOn ? { limit: { min: this.min, max: this.max } } : {}), ...(rel ? { rel } : {}),
+      };
+    }
+    if (t === 'cam') {
+      if (!this.refs.length || this.refs2.length !== 1 || !this.refs.every((r) => 'face' in r && 'comp' in r0 && r.comp === r0.comp)) return null;
+      return { ...base, a: r0, b: this.refs2[0], ...(this.refs.length > 1 ? { chain: this.refs.slice(1).map((r) => (r as { face: FaceRef }).face) } : {}), ...(this.flip ? { flip: true } : {}) };
+    }
+    if (t === 'universal') {
+      if (this.refs.length !== 2) return null;
+      const rel = kept(r0, r1);
+      return { ...base, a: r0, b: r1, ...(rel ? { rel } : {}), ...(this.by === 'point' ? { by: 'point', value: this.value } : {}) };
+    }
     const counts = MECH_BOXES[t].map((x) => x.count);
     if (this.refs.length !== counts[0] || (counts[1] && this.refs2.length !== counts[1])) return null;
-    const [r0, r1] = this.refs;
     switch (t) {
       case 'hinge': {
         const [a2, b2] = this.hingeFaces();
@@ -552,6 +609,7 @@ export class MatePanel extends PropertyPanel {
       case 'width': return { ...base, a: r0, a2: r1, b: this.refs2[0], b2: this.refs2[1] };
       case 'slot': return { ...base, a: r0, a2: r1, b: this.refs2[0] };
     }
+    return null;
   }
 
   private withMate(d: AssemblyDocument, m: Mate) {
@@ -559,8 +617,9 @@ export class MatePanel extends PropertyPanel {
     else {
       m.id = nextAsmId(d, 'm');
       // Limit mates are named for what they limit, as in "LimitDistance1".
-      const kind = m.limit && m.type !== 'hinge' ? `Limit${MATE_LABELS[m.type]}` : MATE_LABELS[m.type];
-      const n = d.mates.filter((x) => x.type === m.type && !!x.limit === !!m.limit).length + 1;
+      const limited = !!m.limit && (m.type === 'distance' || m.type === 'angle');
+      const kind = limited ? `Limit${MATE_LABELS[m.type]}` : MATE_LABELS[m.type];
+      const n = d.mates.filter((x) => x.type === m.type && (!!x.limit && (x.type === 'distance' || x.type === 'angle')) === limited).length + 1;
       let name = `${kind}${n}`;
       for (let k = n + 1; d.mates.some((x) => x.name === name); k++) name = `${kind}${k}`;
       m.name = name;
