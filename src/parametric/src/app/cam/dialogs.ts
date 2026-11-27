@@ -2,7 +2,7 @@
 
 import { CamCancelled } from '../../cam/client';
 import { postProcess, type PostOperation } from '../../cam/post';
-import { type CamController, type CamTool, type CamToolType, CONTROLLER_LABELS, TOOL_TYPE_LABELS, opFeeds } from '../../model/cam';
+import { type CamController, type CamTool, type CamToolType, CONTROLLER_LABELS, TOOL_TYPE_LABELS, newCamDoc, opFeeds } from '../../model/cam';
 import { allocateId } from '../../model/document';
 import { UNIT_SYSTEMS } from '../../model/units';
 import { download, safeName } from '../../platform/files';
@@ -11,15 +11,16 @@ import { icon } from '../../ui/icons';
 import { showDialog, toast } from '../../ui/overlay';
 import type { App } from '../app';
 import { checkbox, numberField, selectField } from '../pm';
-import { rateField } from './panels';
+import { CamPanel, rateField } from './panels';
 import type { CamWorkspace } from './workspace';
 
 const TYPES = Object.entries(TOOL_TYPE_LABELS).map(([value, label]) => ({ value: value as CamToolType, label }));
 
 /** The tool library: add, change and remove the part's cutting tools (one undo step). */
 export async function toolLibraryDialog(app: App, ws: CamWorkspace, select?: string) {
-  ws.ensureCam();
-  const cam = app.store.doc.cam!;
+  // Without CAM data yet, the starting library (kept only if OK is pressed).
+  let fresh = 0;
+  const cam = app.store.doc.cam ?? newCamDoc(() => `__new${++fresh}`, app.store.doc.units === 'IPS');
   const tools: CamTool[] = structuredClone(cam.tools);
   const used = (id: string) => cam.setups.flatMap((s) => s.ops).filter((o) => o.tool === id).length;
   let current = tools.find((t) => t.id === select) ?? tools[0] ?? null;
@@ -33,7 +34,7 @@ export async function toolLibraryDialog(app: App, ws: CamWorkspace, select?: str
   const newId = () => {
     // Ids from the part's counter (taken on OK); until then a placeholder.
     nextLocal++;
-    return `__new${nextLocal}`;
+    return `__add${nextLocal}`;
   };
   const drawList = () => {
     list.textContent = '';
@@ -128,11 +129,13 @@ export async function toolLibraryDialog(app: App, ws: CamWorkspace, select?: str
     },
   });
   if (v !== 'ok') return;
-  app.store.change('Edit tool library', (d) => {
-    for (const t of tools) if (t.id.startsWith('__new')) t.id = allocateId(d, 't');
-    d.cam!.tools = tools;
+  app.store.change(app.store.doc.cam ? 'Edit tool library' : 'Start CAM', (d) => {
+    for (const t of tools) if (t.id.startsWith('__')) t.id = allocateId(d, 't');
+    d.cam ??= { ...newCamDoc(() => ''), tools: [] };
+    d.cam.tools = tools;
   });
   ws.changed();
+  if (app.panel instanceof CamPanel) app.refreshPanel();
 }
 
 const EXTENSIONS: Record<CamController, string> = { fanuc: 'nc', haas: 'nc', mach3: 'tap', linuxcnc: 'ngc', grbl: 'gcode' };
@@ -207,10 +210,11 @@ export async function postDialog(app: App, ws: CamWorkspace) {
     },
   });
   if (v !== 'ok' || !code) return;
-  // Keep the post settings with the part.
-  if (JSON.stringify({ ...cam.post }) !== JSON.stringify({ ...post, units: unitsSel === (app.store.doc.units === 'IPS' ? 'in' : 'mm') ? post.units : unitsSel })) {
-    app.store.change('Post settings', (d) => { if (d.cam) d.cam.post = { ...post, ...(unitsSel !== (d.units === 'IPS' ? 'in' : 'mm') ? { units: unitsSel } : {}) }; });
-  }
+  // Keep the post settings with the part (units only when they differ from the part's).
+  const next = { ...post };
+  delete next.units;
+  if (unitsSel !== (app.store.doc.units === 'IPS' ? 'in' : 'mm')) next.units = unitsSel;
+  if (JSON.stringify(next) !== JSON.stringify(cam.post)) app.store.change('Post settings', (d) => { if (d.cam) d.cam.post = next; });
   download(code, `${safeName(app.store.doc.name)}.${EXTENSIONS[post.controller]}`, 'text/plain');
   toast({ kind: 'success', message: `G-code written for ${CONTROLLER_LABELS[post.controller]}` });
 }

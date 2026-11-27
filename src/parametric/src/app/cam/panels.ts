@@ -3,7 +3,8 @@
 // feeds), with the toolpath previewed while the values change.
 
 import type { CamAxis, CamOperation, CamOrigin, CamSetup, CamTool, ClearingPattern, DrillCycle, EntryKind } from '../../model/cam';
-import { CAM_OP_ICONS, CAM_OP_LABELS, TOOL_TYPE_LABELS, opDefaults, opToolTypes } from '../../model/cam';
+import { CAM_OP_ICONS, CAM_OP_LABELS, TOOL_TYPE_LABELS, newCamDoc, opDefaults, opToolTypes } from '../../model/cam';
+import { allocateId } from '../../model/document';
 import { UNIT_SYSTEMS, formatNumber } from '../../model/units';
 import type { FaceRef, Id } from '../../model/types';
 import { pathStats, type Toolpath } from '../../cam/toolpath';
@@ -167,9 +168,10 @@ export class SetupPanel extends CamPanel {
     const s = this.s;
     if (!s.name.trim()) { this.setMessage('error', 'Enter a name'); return false; }
     const app = this.app;
-    this.ws.ensureCam();
-    app.store.change(this.isNew ? 'New setup' : 'Edit setup', (d) => {
-      const cam = d.cam!;
+    app.store.change(this.isNew ? (app.store.doc.cam ? 'New setup' : 'Start CAM') : 'Edit setup', (d) => {
+      // The first setup brings the tool library with it (one undo step).
+      d.cam ??= newCamDoc((p) => allocateId(d, p), d.units === 'IPS');
+      const cam = d.cam;
       const i = cam.setups.findIndex((x) => x.id === s.id);
       if (i >= 0) cam.setups[i] = { ...structuredClone(s), ops: cam.setups[i].ops };
       else cam.setups.push(structuredClone(s));

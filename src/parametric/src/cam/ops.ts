@@ -714,7 +714,6 @@ class Gen {
     this.steps = levels.length + 1;
     const r = this.region(st.min[0] - m, st.min[1] - m, st.max[0] + m, st.max[1] + m, cutter, op.floorLeave);
     this.tick();
-    if (st.min[2] >= this.partBottom - 1e-6) this.b.warnings.push('The roughing goes down to the bottom of the part, which is the bottom of the stock. Leave stock below the part (Setup: stock below) to keep it held.');
     // The tool stays within the stock (plus most of its radius, to cut its edges).
     const gx = R * 0.9;
     const lim = (x: number, y: number) => Math.min(x - (st.min[0] - gx), st.max[0] + gx - x, y - (st.min[1] - gx), st.max[1] + gx - y);
@@ -769,7 +768,8 @@ class Gen {
       this.tick();
       if (Math.abs(2 * h.r - this.tool.diameter) > Math.max(0.05, h.r * 0.02)) b.warnings.push(`A hole of ${(2 * h.r).toFixed(3)} mm is drilled with a ${this.tool.diameter} mm tool.`);
       const z = h.through ? h.bottom - Math.max(0, op.breakthrough) - (op.tipThrough ? tip : 0) : h.bottom;
-      b.cycle(h.x, h.y, { cycle: op.cycle, r: h.top + this.input.setup.retract, z, peck: op.cycle === 'drill' ? 0 : Math.max(0.05, op.peck), dwell: Math.max(0, op.dwell) });
+      // From the retract height over the stock: the stock over the hole may not be cut yet.
+      b.cycle(h.x, h.y, { cycle: op.cycle, r: b.retract, z, peck: op.cycle === 'drill' ? 0 : Math.max(0.05, op.peck), dwell: Math.max(0, op.dwell) });
     }
   }
 
@@ -785,13 +785,13 @@ class Gen {
       this.tick();
       const rh = h.r - op.leave - this.R;
       const z = h.through ? h.bottom - Math.max(0, op.breakthrough) : h.bottom;
-      const zFrom = h.top + 0.5;
-      b.rapidTo(h.x + rh, h.y, h.top + this.input.setup.retract);
-      b.rapid(h.x + rh, h.y, zFrom + 0.5);
+      // Down from over the stock (it may not be cut over the hole yet).
+      const zFrom = this.stockTop + 0.5;
+      b.rapidTo(h.x + rh, h.y, b.retract);
       this.helix(h.x, h.y, rh, zFrom, z, Math.max(0.05, op.pitch), climb);
       // Away from the wall and out through the middle.
       b.feed(h.x, h.y, z);
-      b.rapid(h.x, h.y, h.top + this.input.setup.retract);
+      b.rapid(h.x, h.y, b.retract);
     }
   }
 

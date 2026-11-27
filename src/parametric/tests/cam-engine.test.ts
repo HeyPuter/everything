@@ -11,6 +11,7 @@ import { postProcess, writeArcs } from '../src/cam/post';
 import { CYCLE, FEED, PLUNGE, RAPID, type Toolpath, expandMoves, pathStats } from '../src/cam/toolpath';
 import { type CamOperation, type CamSetup, type CamTool, newCamDoc, normalizeCam, opDefaults } from '../src/model/cam';
 import type { Vec3 } from '../src/math/vec';
+import { allocateId, newDocument, parseDocument, serializeDocument } from '../src/model/document';
 
 type Tri = number[];
 
@@ -271,7 +272,7 @@ describe('operations', () => {
     expect(cycle).toBeGreaterThanOrEqual(0);
     expect(tp.moves[cycle + 1]).toBeCloseTo(20, 6);
     expect(tp.cycles[0].z).toBeLessThan(-1);
-    expect(tp.cycles[0].r).toBeCloseTo(13, 6);
+    expect(tp.cycles[0].r).toBeCloseTo(15, 6);
     // Bore it with a 3 mm end mill.
     const em = tool('flat', 3);
     const big = [{ ...cyl[0], radius: 2.5 }];
@@ -344,6 +345,17 @@ describe('simulation and G-code', () => {
     expect(st.time).toBeGreaterThan(0);
     expect(st.zMin).toBeCloseTo(10, 6);
   }, 60_000);
+
+  it('saves CAM data with the part and opens it again, without id clashes', () => {
+    const doc = newDocument('Plate');
+    doc.cam = newCamDoc((p) => allocateId(doc, p));
+    doc.cam.setups.push({ ...setup({ id: allocateId(doc, 's') }), ops: [{ ...op('face', doc.cam.tools[0]), id: allocateId(doc, 'op') }] });
+    const back = parseDocument(serializeDocument({ ...doc, nextId: 1 }));
+    expect(back.cam).toEqual(doc.cam);
+    // A stale counter is moved past the CAM ids.
+    const used = new Set([...back.cam!.tools.map((t) => t.id), back.cam!.setups[0].id, back.cam!.setups[0].ops[0].id]);
+    for (let i = 0; i < 5; i++) expect(used.has(allocateId(back, 't'))).toBe(false);
+  });
 
   it('reads CAM data back and drops what is damaged', () => {
     const doc = newCamDoc((p) => `${p}9`);

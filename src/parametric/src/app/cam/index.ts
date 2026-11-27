@@ -2,7 +2,7 @@
 // the CAM rows of the design tree and their menus.
 
 import type { CamOperation, CamSetup, CamOpType } from '../../model/cam';
-import { CAM_OP_ICONS, CAM_OP_LABELS, findOp, nextCamName } from '../../model/cam';
+import { CAM_OP_ICONS, CAM_OP_LABELS, findOp, newCamDoc, nextCamName } from '../../model/cam';
 import { allocateId } from '../../model/document';
 import type { Id } from '../../model/types';
 import { addIcons } from '../../ui/icons';
@@ -80,7 +80,6 @@ export function installCam(app: App, hooks: AppHooks): CamWorkspace {
     if (why) { toast({ kind: 'info', message: why }); return; }
     void ws.mesh().then(() => {
       const s = newSetup(app, ws);
-      ws.ensureCam();
       s.id = allocateId(app.store.doc, 's');
       app.exitModes();
       void app.openPanel(new SetupPanel(app, ws, s, true));
@@ -91,14 +90,18 @@ export function installCam(app: App, hooks: AppHooks): CamWorkspace {
     if (!partOnly()) return;
     const why = ws.ready();
     if (why) { toast({ kind: 'info', message: why }); return; }
-    const cam = ws.ensureCam();
     let setup = currentSetup(ws);
     if (!setup) {
-      // A first operation comes with a setup from the top.
+      // A first operation comes with the tool library and a setup from the top (one undo step).
       const s = newSetup(app, ws);
-      app.store.change('New setup', (d) => { s.id = allocateId(d, 's'); d.cam!.setups.push(s); });
-      setup = ws.cam!.setups[0];
+      app.store.change(ws.cam ? 'New setup' : 'Start CAM', (d) => {
+        d.cam ??= newCamDoc((p) => allocateId(d, p), d.units === 'IPS');
+        s.id = allocateId(d, 's');
+        d.cam.setups.push(s);
+      });
+      setup = ws.cam!.setups[ws.cam!.setups.length - 1];
     }
+    const cam = ws.cam!;
     const tool = defaultTool(cam.tools, type, cam.setups);
     if (!tool) { toast({ kind: 'warning', message: 'Add a tool to the tool library first.' }); void toolLibraryDialog(app, ws); return; }
     const op = newOperation(type, allocateId(app.store.doc, 'op'), nextCamName(cam.setups.flatMap((s) => s.ops.map((o) => o.name)), CAM_OP_LABELS[type].replace(/^\d+D /, '').replace(/\s+/g, '')), tool);

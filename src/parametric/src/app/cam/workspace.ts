@@ -8,8 +8,7 @@ import { type GenerateJob, type ModelCylinder, stlTriangles } from '../../cam/en
 import { type MachineFrame, machineFrame, toModel } from '../../cam/frame';
 import { PLUNGE, RAPID, type PathStats, type Toolpath, expandMoves, pathStats } from '../../cam/toolpath';
 import type { Vec3 } from '../../math/vec';
-import { type CamDoc, type CamOperation, type CamSetup, type CamTool, findOp, newCamDoc, opFeeds } from '../../model/cam';
-import { allocateId } from '../../model/document';
+import { type CamDoc, type CamOperation, type CamSetup, type CamTool, findOp, opFeeds } from '../../model/cam';
 import type { FaceRef, Id } from '../../model/types';
 import type { App } from '../app';
 
@@ -31,7 +30,38 @@ const COLORS: Record<number, number[]> = {
   [PLUNGE]: [30, 160, 90, 255],
 };
 
+/** A toolpath's moves as line segments in model coordinates (rapids and cuts apart). */
+interface PathLines { rapid: Float32Array; rapidColors: Uint8Array; cut: Float32Array; cutColors: Uint8Array }
+
+function pathLines(tp: Toolpath, f: MachineFrame): PathLines {
+  let nr = 0, nc = 0, first = true;
+  expandMoves(tp, (k) => { if (!first) { if (k === RAPID) nr++; else nc++; } first = false; });
+  const rapid = new Float32Array(nr * 6), cut = new Float32Array(nc * 6);
+  const rapidColors = new Uint8Array(nr * 4), cutColors = new Uint8Array(nc * 4);
+  let ir = 0, ic = 0;
+  let px = NaN, py = NaN, pz = NaN;
+  expandMoves(tp, (k, x, y, z) => {
+    const p = toModel(f, x, y, z);
+    if (!Number.isNaN(px)) {
+      const col = COLORS[k] ?? COLORS[1];
+      if (k === RAPID) { rapid.set([px, py, pz, p[0], p[1], p[2]], ir * 6); rapidColors.set(col, ir * 4); ir++; }
+      else { cut.set([px, py, pz, p[0], p[1], p[2]], ic * 6); cutColors.set(col, ic * 4); ic++; }
+    }
+    [px, py, pz] = p;
+  });
+  return { rapid, rapidColors, cut, cutColors };
+}
+
+const concat = <T extends Float32Array | Uint8Array>(parts: T[], make: (n: number) => T): T => {
+  const out = make(parts.reduce((n, p) => n + p.length, 0));
+  let o = 0;
+  for (const p of parts) { out.set(p, o); o += p.length; }
+  return out;
+};
+
 export class CamWorkspace {
+  /** Line geometry of toolpaths, by the frame it was placed with. */
+  private lineCache = new WeakMap<Toolpath, { frame: MachineFrame; lines: PathLines }>();
   readonly client = new CamClient();
   /** A second worker for the preview of the operation being edited, so it never waits for (or stops) generation. */
   private readonly previewClient = new CamClient();
@@ -84,13 +114,6 @@ export class CamWorkspace {
 
   get cam(): CamDoc | null {
     return this.app.store.doc.cam ?? null;
-  }
-
-  /** The part's CAM data, created (as an undo step) the first time it is needed. */
-  ensureCam(): CamDoc {
-    const doc = this.app.store.doc;
-    if (!doc.cam) this.app.store.change('Start CAM', (d) => { d.cam = newCamDoc((p) => allocateId(d, p), d.units === 'IPS'); });
-    return this.app.store.doc.cam!;
   }
 
   changed() {
@@ -330,22 +353,14 @@ export class CamWorkspace {
       if (cam && this.shown() && !this.tris && !this.loading && !this.ready()) void this.mesh().then((t) => { if (t) this.redraw(); });
       return;
     }
-    const rapid: number[] = [], rc: number[] = [], cut: number[] = [], cc: number[] = [];
+    const shown: PathLines[] = [];
     const focusSetup = this.focus ? cam.setups.find((s) => s.id === this.focus || s.ops.some((o) => o.id === this.focus)) : null;
     const add = (setup: CamSetup, tp: Toolpath) => {
       const f = this.frameOf(setup);
       if (!f) return;
-      let prev: Vec3 | null = null;
-      expandMoves(tp, (k, x, y, z) => {
-        const p = toModel(f, x, y, z);
-        if (prev) {
-          const into = k === RAPID ? rapid : cut;
-          const col = k === RAPID ? rc : cc;
-          into.push(...prev, ...p);
-          col.push(...(COLORS[k] ?? COLORS[1]));
-        }
-        prev = p;
-      });
+      let c = this.lineCache.get(tp);
+      if (!c || c.frame !== f) { c = { frame: f, lines: pathLines(tp, f) }; this.lineCache.set(tp, c); }
+      shown.push(c.lines);
     };
     if (!this.hidePaths) {
       if (this.preview) {
@@ -362,8 +377,10 @@ export class CamWorkspace {
         }
       }
     }
-    r.setLines('camRapid', rapid.length ? { positions: new Float32Array(rapid), colors: new Uint8Array(rc), width: 1, depth: 'test', dash: 5, order: 7, clip: false } : null);
-    r.setLines('camCut', cut.length ? { positions: new Float32Array(cut), colors: new Uint8Array(cc), width: 1.4, depth: 'test', order: 7, clip: false } : null);
+    const rapid = concat(shown.map((l) => l.rapid), (n) => new Float32Array(n));
+    const cut = concat(shown.map((l) => l.cut), (n) => new Float32Array(n));
+    r.setLines('camRapid', rapid.length ? { positions: rapid, colors: concat(shown.map((l) => l.rapidColors), (n) => new Uint8Array(n)), width: 1, depth: 'test', dash: 5, order: 7, clip: false } : null);
+    r.setLines('camCut', cut.length ? { positions: cut, colors: concat(shown.map((l) => l.cutColors), (n) => new Uint8Array(n)), width: 1.4, depth: 'test', order: 7, clip: false } : null);
     // The stock and work origin of the setup shown (or the first).
     const setup = this.preview?.setup ?? focusSetup ?? cam.setups[0];
     const f = setup ? this.frameOf(setup) : null;
