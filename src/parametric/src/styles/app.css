@@ -741,3 +741,26 @@ a.icon-btn { text-decoration: none; }
   .cam-tools, .cam-post { grid-template-columns: minmax(0, 1fr); }
   .cam-gcode { height: 220px; }
 }
+
+/* Stress analysis: result legend, probe pins, panels. */
+.fea-legend { position: absolute; right: 14px; top: 64px; z-index: 2; padding: 8px 10px; background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--border); border-radius: var(--radius); font-size: var(--fs-sm); color: var(--text); pointer-events: none; max-width: 220px; }
+.fea-legend-title { font-weight: 600; margin-bottom: 6px; }
+.fea-legend-scale { display: flex; gap: 8px; height: 180px; }
+.fea-legend-bar { width: 16px; border-radius: 3px; border: 1px solid var(--border-strong); }
+.fea-legend-ticks { display: flex; flex-direction: column; justify-content: space-between; font-variant-numeric: tabular-nums; }
+.fea-legend-note { margin-top: 6px; color: var(--text-2); }
+.fea-pins { position: absolute; inset: 0; pointer-events: none; z-index: 2; overflow: hidden; }
+.fea-pin { position: absolute; width: 0; height: 0; }
+.fea-pin::before { content: ''; position: absolute; left: -4px; top: -4px; width: 8px; height: 8px; border-radius: 50%; background: var(--text); border: 2px solid var(--panel); }
+.fea-pin span { position: absolute; left: 8px; top: -22px; white-space: nowrap; padding: 2px 6px; border-radius: 4px; background: var(--panel); border: 1px solid var(--border-strong); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.fea-probes { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.fea-probe { display: grid; grid-template-columns: 18px auto 1fr; gap: 6px; align-items: baseline; font-variant-numeric: tabular-nums; }
+.fea-slider-row { align-items: center; gap: 8px; }
+.fea-slider { flex: 1; min-width: 0; }
+.fea-stats td.num, .fea-summary td.num, .fea-forces td.num, .fea-solve td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.fea-summary th, .fea-forces th, .fea-solve th, .fea-stats th { font-weight: 500; }
+.fea-material-props { margin-top: 6px; }
+@media (max-width: 760px) {
+  .fea-legend { top: auto; bottom: 12px; right: 8px; max-width: 170px; }
+  .fea-legend-scale { height: 120px; }
+}
