@@ -262,6 +262,11 @@ describe('mechanical mates', () => {
       expect(r.placements.get('R')!.p[0]).toBeCloseTo(v, 6);
       expect(dot(qRotate(r.placements.get('P')!.q, [1, 0, 0]), [Math.cos(v / 10), Math.sin(v / 10), 0])).toBeCloseTo(1, 6);
     }
+    // A rack along the pinion's axis is refused.
+    const along = { ...s.mates[3], b: { body: 'R', geo: { kind: 'line', p: [0, 0, 0], d: [0, 0, 1] } as Geo } };
+    const bad = new MateSolver(s.bodies, [...s.mates.slice(0, 3), along]).analyze();
+    expect(bad.status).toBe('error');
+    expect(bad.invalid.get(along.id)).toMatch(/across the pinion's axis/);
     // By travel per turn, and reversed.
     const per = rackAndPinion({ by: 'revolution', value: 50, reverse: true });
     const r2 = computeMotion({ bodies: per.bodies, mates: per.mates, motors: [rotary('P', axis([0, 0, 0]), 360)], duration: 1, fps: 30, scale: 100 });

@@ -1204,8 +1204,15 @@ export class MateSolver {
       if (m.type === 'angle' && (m.limit.min < 0 || m.limit.max > 180)) return 'Angle limits are between 0° and 180°';
       if (m.type === 'hinge' && !m.rel) return 'The hinge has no stored position to measure its angle from';
     }
-    if (isMechanical(m.type)) return mechanicalProblem(m);
+    if (isMechanical(m.type)) return mechanicalProblem(m) ?? (m.type === 'rackPinion' ? this.rackProblem(m) : null);
     return m.type === 'lock' ? null : mateProblem(m.type, m.a.geo, m.b.geo);
+  }
+
+  /** A rack along its pinion's axis (where the components are) is no rack and pinion: it would move as a screw. */
+  private rackProblem(m: SolverMate): string | null {
+    const at = (e: SolverEntity) => (e.body ? this.bodies.find((b) => b.id === e.body)?.placement ?? null : null);
+    const dp = dirOf(placeGeo(m.a.geo, at(m.a))), u = dirOf(placeGeo(m.b.geo, at(m.b)));
+    return dp && u && Math.abs(dot(normalize(dp), normalize(u))) > 0.999 ? 'The rack must run across the pinion\'s axis, not along it' : null;
   }
 }
 
