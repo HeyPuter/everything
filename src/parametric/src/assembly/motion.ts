@@ -158,6 +158,16 @@ export class MotionRun {
     const t0 = this.k * this.dt, t1 = (this.k + 1) * this.dt;
     const prev = this.result.frames[this.result.frames.length - 1];
     this.k++;
+    // A mate driver taking its mate past what the mate can be stops the study there, the last frame where it gets to.
+    const out = this.leaves(t0, t1);
+    if (out) {
+      if (out.time > t0 + 1e-9) {
+        const r = this.span(prev, t0, out.time);
+        if (r.r.ok) { this.result.times.push(out.time); this.result.frames.push(new LaterFrame(r.r.placements, this.result.frames[0])); }
+      }
+      this.result.stop = out.stop;
+      return false;
+    }
     let failed: ReturnType<MotionRun['span']> | null = null;
     for (const parts of [1, 4, 16]) {
       const times: number[] = [], frames: Map<Id, Placement>[] = [];
@@ -181,6 +191,32 @@ export class MotionRun {
     const f = failed!;
     this.result.stop = this.whyStopped(f.solver, f.r.placements, f.from, f.mates, f.r.residuals, t1);
     return false;
+  }
+
+  /**
+   * The first time in (t0, t1] a mate driver takes its mate's value out of
+   * what the mate can be: a distance below zero (the other side is the
+   * mate's flip, not a negative distance), an angle outside 0° to 180°.
+   */
+  private leaves(t0: number, t1: number): { time: number; stop: MotionStop } | null {
+    let first: { time: number; stop: MotionStop } | null = null;
+    for (const m of this.setup.motors) {
+      if (m.kind !== 'mate') continue;
+      const mate = this.setup.mates.find((x) => x.id === m.mate);
+      if (!mate || (mate.type !== 'distance' && mate.type !== 'angle')) continue;
+      const hi = mate.type === 'angle' ? 180 : Infinity;
+      const bad = (t: number) => { const v = m.at(t); return !(v >= -1e-9 && v <= hi + 1e-9); };
+      if (!bad(t1)) continue;
+      // Where it crosses (the value moves on smoothly within a frame).
+      let lo = t0, up = t1;
+      for (let i = 0; i < 50 && up - lo > 1e-9; i++) { const mid = (lo + up) / 2; if (bad(mid)) up = mid; else lo = mid; }
+      if (first && first.time <= lo) continue;
+      const name = (id: Id) => this.setup.names?.get(id) ?? id;
+      const time = Math.round(lo * 1e4) / 1e4;
+      const why = mate.type === 'distance' ? 'below zero (a distance cannot be negative: the other side is the mate\'s Flip option)' : `${m.at(up) < 0 ? 'below 0°' : 'past 180°'} (an angle mate measures 0° to 180°)`;
+      first = { time: lo, stop: { time, kind: 'limit', mate: mate.id, message: `${this.setup.names?.get(m.id) ?? m.name} takes ${name(mate.id)} ${why} at ${time} s: the motion stops there.` } };
+    }
+    return first;
   }
 
   /** Solves the motion from `prev` (at time t0) to time t1. */

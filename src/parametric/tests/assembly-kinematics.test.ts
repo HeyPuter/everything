@@ -445,6 +445,31 @@ describe('motion studies', () => {
     expect(mateSeries(res, drive)!.values[20]).toBeCloseTo(50, 5);
   });
 
+  it('a mate driver stops where it would take a distance below zero or an angle outside 0° to 180°', () => {
+    // A block sliding along y on the ground, 10 from it, driven toward it at 3 mm/s for 5 s.
+    const slide = [mate('coincident', ['g', plane([5, 0, 0], [1, 0, 0])], ['b', plane([5, 0, 0], [1, 0, 0])]), mate('coincident', ['g', plane([0, 0, 5], Z)], ['b', plane([0, 0, 5], Z)])];
+    const gap = mate('distance', ['g', plane([0, 0, 0], [0, 1, 0])], ['b', plane([0, 0, 0], [0, 1, 0])], { value: 10 });
+    const bodies = [body('g', true), body('b', false, [0, 10, 0])];
+    const driver: MotorInput = { id: 'mo', name: 'MateDriver1', kind: 'mate', mate: gap.id, at: profileOf('mate', { profile: 'constant', speed: -3 }, 5, 10) };
+    const res = computeMotion({ bodies, mates: [...slide, gap], motors: [driver], duration: 5, fps: 10, scale: 100, names: new Map([[gap.id, 'Distance1']]) });
+    expect(res.stop?.kind).toBe('limit');
+    expect(res.stop?.mate).toBe(gap.id);
+    expect(res.stop?.time).toBeCloseTo(10 / 3, 3);
+    expect(res.stop?.message).toMatch(/MateDriver1 takes Distance1 below zero .* at 3\.333\d? s/);
+    // It ends touching (no frame past it), the last frame where the distance reaches zero.
+    expect(res.times.at(-1)).toBeCloseTo(10 / 3, 6);
+    for (const f of res.frames) expect(f.get('b')!.p[1]).toBeGreaterThan(-1e-6);
+    expect(res.frames.at(-1)!.get('b')!.p[1]).toBeCloseTo(0, 5);
+    // An angle swung past 180°: stopped there.
+    const hingeMates = [mate('concentric', ['g', axis([0, 0, 0])], ['b', axis([0, 0, 0])]), mate('coincident', ['g', plane([0, 0, 0], Z)], ['b', plane([0, 0, 0], Z)])];
+    const ang = mate('angle', ['g', plane([0, 0, 0], [0, 1, 0])], ['b', plane([0, 0, 0], [0, 1, 0])], { value: 150 });
+    const swing: MotorInput = { id: 'mo', name: 'MateDriver1', kind: 'mate', mate: ang.id, at: profileOf('mate', { profile: 'oscillate', amplitude: 60, frequency: 0.25 }, 2, 150) };
+    const r2 = computeMotion({ bodies: [body('g', true), body('b', false, [0, 0, 0], qAxisAngle(Z, (150 * Math.PI) / 180))], mates: [...hingeMates, ang], motors: [swing], duration: 2, fps: 20, scale: 100 });
+    expect(r2.stop?.kind).toBe('limit');
+    expect(r2.stop?.message).toMatch(/past 180°/);
+    expect(r2.stop?.time).toBeCloseTo(Math.asin(0.5) / (2 * Math.PI * 0.25), 3);
+  });
+
   it('profiles: constant speed (deg/s or rpm), oscillation, ramp, reversed', () => {
     expect(profileOf('rotary', { profile: 'constant', speed: 90 }, 1)(2)).toBeCloseTo(Math.PI, 12);
     expect(profileOf('rotary', { profile: 'constant', speed: 60, rpm: true }, 1)(0.5)).toBeCloseTo(Math.PI, 9);
