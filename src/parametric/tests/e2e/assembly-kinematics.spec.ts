@@ -839,3 +839,26 @@ test('a motion study plots a picked vertex of the component even where another c
   await pm.getByRole('button', { name: 'Cancel' }).first().click();
   expect(errors).toEqual([]);
 });
+
+test('a motion study is not calculated with a duration it refused', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  const pm = await hingedGears(page);
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await hingeMotor(page);
+  const duration = pm.getByRole('spinbutton', { name: 'Duration (s)' });
+  await duration.fill('0');
+  await duration.press('Enter');
+  await expect(duration).toHaveAttribute('aria-invalid', 'true');
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('alert')).toContainText('Duration (s): Between 0.1 and 3600');
+  await expect(duration).toBeFocused();
+  await expect(pm.getByText(/Calculated \d+ frames/)).toHaveCount(0);
+  await duration.fill('2');
+  await duration.press('Enter');
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('status').filter({ hasText: 'Calculated 61 frames' })).toBeVisible();
+  await expect(pm.getByRole('alert')).toHaveCount(0);
+  await pm.getByRole('button', { name: 'Cancel' }).first().click();
+  expect(errors).toEqual([]);
+});

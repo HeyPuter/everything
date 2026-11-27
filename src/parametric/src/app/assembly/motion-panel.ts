@@ -247,6 +247,9 @@ export class MotionStudyPanel extends PropertyPanel {
   }
 
   private async calculate() {
+    // Not with a value it could not take (a duration of 0 would be calculated with the last good one).
+    if (!this.checkFields()) return;
+    this.setMessage(null);
     const run = ++this.runs;
     this.play(false);
     this.computing = true;
