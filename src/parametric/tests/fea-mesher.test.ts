@@ -97,7 +97,10 @@ describe('volume mesher', () => {
         const m = meshSolid(surf, { size });
         expectValid(m);
         expect(m.stats.pieces).toBe(1);
-        expect(Math.abs(m.stats.volume / fs.volume - 1)).toBeLessThan(size > auto ? 0.015 : 0.004);
+        // Coarse meshes may cut a little off small fillets (below the 2% the mesh panel warns about).
+        expect(Math.abs(m.stats.volume / fs.volume - 1)).toBeLessThan(size > auto ? 0.02 : 0.004);
+        // No slivers on the bracket: the edge recovery stops before it squashes elements (it went to 0.008 coarse).
+        if (ex.id === 'bracket') expect(m.stats.minQuality, `quality at ${size}`).toBeGreaterThan(0.04);
         // Every face of the part is meshed, the large ones to within a few percent of their area.
         const areas = meshFaceAreas(m);
         faces.forEach((f, i) => {

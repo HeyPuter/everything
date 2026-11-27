@@ -452,6 +452,7 @@ export function meshSolid(surf: SurfaceIndex, opts: MeshOptions): TetMesh {
     for (const fa of W.labels[u]) for (const fb of W.labels[w]) if (fa >= 0 && fb >= 0 && fa !== fb && surf.adjacent(fa, fb)) return [fa, fb];
     return null;
   };
+  let lastEdges = Infinity;
   for (let pass = 0; pass < 6; pass++) {
     const edges: { u: number; w: number; a: number; b: number; d2: number }[] = [];
     forBoundaryEdges(boundaryOf(W.typed()).tris, (u, w) => {
@@ -463,6 +464,10 @@ export function meshSolid(surf: SurfaceIndex, opts: MeshOptions): TetMesh {
       if (q && q.d2 < h * h) edges.push({ u, w, a: s[0], b: s[1], d2: q.d2 });
     });
     if (!edges.length) break;
+    // No fewer crossings than the last pass (moves refused, splits making new ones): more passes would only
+    // split and squash elements (slivers of quality 0.01 on a coarse bracket), so stop.
+    if (edges.length >= lastEdges) break;
+    lastEdges = edges.length;
     edges.sort((p, q) => p.d2 - q.d2);
     let moved = 0, split = 0, refused = 0;
     for (const e of edges) {
