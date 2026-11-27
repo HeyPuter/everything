@@ -109,9 +109,8 @@ export class CamClient {
     return this.pending.size > 0;
   }
 
+  /** Stops the worker; requests still waiting reject with CamCancelled. */
   dispose() {
-    this.worker?.terminate();
-    this.worker = null;
-    this.pending.clear();
+    this.fail(new CamCancelled());
   }
 }
