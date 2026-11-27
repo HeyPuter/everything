@@ -430,6 +430,15 @@ describe('motion studies', () => {
     expect(Math.abs(h.d2[0])).toBeLessThan(0.02 * peak);
     expect(Math.abs(h.d2[30])).toBeLessThan(0.02 * peak);
     expect(h.d1[0] / (20 * Math.PI)).toBeCloseTo(1, 1);
+    // Frames not evenly spaced (a study took smaller steps between 0.5 s and 0.8 s): the slope where the steps change is as good as elsewhere.
+    const tu: number[] = [];
+    for (let k = 0; k <= 20; k++) { if (k > 5 && k <= 8) for (let j = 1; j < 4; j++) tu.push((k - 1 + j / 4) / 10); tu.push(k / 10); }
+    const f = (s: number) => 400 * Math.sin(2 * Math.PI * s), df = (s: number) => 800 * Math.PI * Math.cos(2 * Math.PI * s);
+    const even = Array.from({ length: 21 }, (_, k) => k / 10), de = derivatives(even, even.map(f)).d1;
+    const worstEven = Math.max(...even.map((s, i) => Math.abs(de[i] - df(s))));
+    const du = derivatives(tu, tu.map(f)).d1;
+    tu.forEach((s, i) => expect(Math.abs(du[i] - df(s))).toBeLessThanOrEqual(worstEven + 1e-9));
+    expect(derivatives([0, 0.5], [1, 2]).d1).toEqual([2, 2]);
     expect(resultsCsv([{ name: 'Time (s)', values: [0, 0.5] }, { name: 'X, mm', values: [1, 2.25] }])).toBe('Time (s),"X, mm"\n0,1\n0.5,2.25');
     expect(len(sub(pointPath({ times: [0], frames: [new Map([['a', { p: [1, 2, 3], q: [0, 0, 0, 1] }]])], stop: null, duration: 1 }, 'a', [1, 0, 0])[0], [2, 2, 3]))).toBe(0);
   });

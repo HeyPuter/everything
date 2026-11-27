@@ -333,11 +333,16 @@ export function derivatives(t: number[], v: number[]): { d1: number[]; d2: numbe
   const n = v.length;
   const d1 = new Array<number>(n).fill(0), d2 = new Array<number>(n).fill(0);
   if (n < 2) return { d1, d2 };
-  for (let i = 0; i < n; i++) {
-    const a = Math.max(0, i - 1), b = Math.min(n - 1, i + 1);
-    d1[i] = (v[b] - v[a]) / (t[b] - t[a] || 1);
+  if (n < 3) {
+    d1[0] = d1[1] = (v[1] - v[0]) / (t[1] - t[0] || 1);
+    return { d1, d2 };
   }
-  if (n < 3) return { d1, d2 };
+  // The slope of the parabola through each sample and the two beside it (steps h1 before, h2 after:
+  // the frames of a study are not evenly spaced where it took smaller steps).
+  for (let i = 1; i < n - 1; i++) {
+    const h1 = t[i] - t[i - 1], h2 = t[i + 1] - t[i];
+    d1[i] = (-h2 / (h1 * (h1 + h2))) * v[i - 1] + ((h2 - h1) / (h1 * h2)) * v[i] + (h1 / (h2 * (h1 + h2))) * v[i + 1];
+  }
   // The slope at an end of the parabola through it and the two samples beside it (steps h1 then h2 away).
   const end = (f0: number, f1: number, f2: number, h1: number, h2: number) => (-(2 * h1 + h2) / (h1 * (h1 + h2))) * f0 + ((h1 + h2) / (h1 * h2)) * f1 - (h1 / (h2 * (h1 + h2))) * f2;
   d1[0] = end(v[0], v[1], v[2], t[1] - t[0], t[2] - t[1]);
