@@ -20,6 +20,13 @@ export class CamCancelled extends Error {
   constructor() { super('Cancelled'); }
 }
 
+/** An error from the worker; `user`: its message is written for the user (else an internal failure). */
+export class CamEngineError extends Error {
+  constructor(message: string, readonly user: boolean) {
+    super(user ? message : `The CAM engine ran into a problem (${message})`);
+  }
+}
+
 export class CamClient {
   private worker: Worker | null = null;
   private nextId = 1;
@@ -48,7 +55,7 @@ export class CamClient {
       if (r.type === 'progress') { p.progress?.(r.value); return; }
       this.pending.delete(r.id);
       if (r.type === 'done') p.resolve(r.result);
-      else p.reject(new Error(r.error));
+      else p.reject(new CamEngineError(r.error, r.user));
     };
     w.onerror = (ev) => {
       ev.preventDefault?.();
