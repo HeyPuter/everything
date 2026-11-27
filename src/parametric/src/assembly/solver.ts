@@ -45,7 +45,8 @@ export type Geo =
 
 /**
  * A cam's profile in the cam's coordinates. Followers touch its convex
- * outline: a circle (exactly) or a polygon (arcs finely divided). `concave`:
+ * outline: a circle, or a polygon (arcs divided at every degree, with the
+ * corners) whose arcs are kept too, so contact on them is exact. `concave`:
  * how deep the profile dips inside that outline (zero when it is convex).
  */
 export interface CamProfile {
@@ -645,9 +646,9 @@ export interface ProfileArc { c: Vec3; r: number; ends?: [Vec3, Vec3, Vec3] }
 /**
  * A cam's profile from its round faces (arcs about axes along d) and the
  * corners of its other faces (points), all in the cam's coordinates. A
- * single whole circle stays a circle (exact); otherwise arcs are divided
- * finely (a 20 mm radius by at most 0.4 µm) and the outline is their convex
- * hull with the points. Where the profile lies inside that outline it is
+ * single whole circle stays a circle; otherwise the outline is the convex
+ * hull of the arcs (divided at every degree) and the points, the arcs kept
+ * for exact contact. Where the profile lies inside that outline it is
  * concave, and `concave` says by how much.
  */
 export function camProfile(d0: Vec3, arcs: ProfileArc[], points: Vec3[]): CamProfile {
@@ -676,7 +677,7 @@ export function camProfile(d0: Vec3, arcs: ProfileArc[], points: Vec3[]): CamPro
       sweep = ccw(am) <= ccw(a1) ? ccw(a1) : ccw(a1) - 2 * Math.PI;
     }
     exact.push({ c, r: a.r, a0: sweep >= 0 ? a0 : a0 + sweep, span: Math.abs(sweep) });
-    const n = Math.max(8, Math.ceil(Math.abs(sweep) / (0.2 * Math.PI / 180)));
+    const n = Math.max(8, Math.ceil(Math.abs(sweep) / (Math.PI / 180)));
     for (let k = 0; k <= n; k++) { const t = a0 + (sweep * k) / n; pts.push([c[0] + a.r * Math.cos(t), c[1] + a.r * Math.sin(t)]); }
   }
   const hull = convexHull(pts);
@@ -730,8 +731,8 @@ export function profileDistance(p: CamProfile, x: Vec2): number {
   }
   // Outside (or between a chord and its arc): the nearest of the edges and arcs, none nearer than the outline.
   if (poly >= 0) return Math.min(poly, out);
-  // Inside, near an arc (no deeper than the chords' sag, 0.2° apart): the arc's.
-  return inside >= poly - 2e-6 * Math.max(1, ...p.arcs.map((a) => a.r)) ? inside : poly;
+  // Inside, near an arc (no deeper than the sag of its chords, 1° apart): the arc's.
+  return inside >= poly - 4e-5 * Math.max(1, ...p.arcs.map((a) => a.r)) ? inside : poly;
 }
 
 /** How far the outline reaches along a unit direction (its support function). */
