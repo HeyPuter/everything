@@ -1142,6 +1142,10 @@ export class MateSolver {
       if (!g.mates.length) { dof += n; continue; }
       const index = new Map(g.bodies.map((b, i) => [b.id, i]));
       const J: number[][] = [];
+      // Gear, rack and pinion and screw mates hold at the start of every solve whatever their
+      // ratio, so one that contradicts the mates before it is found here: see contradicts.
+      const coupled = g.mates.some(isCoupling) ? new Map(g.bodies.map((b) => [b.id, b.id])) : null;
+      const top = (id: Id): Id => { let r = id; while (coupled!.get(r) !== r) r = coupled!.get(r)!; return r; };
       for (const m of g.mates) {
         const base = this.mateResidual(m, pl, L, pl, false);
         if (!base) continue;
@@ -1161,6 +1165,15 @@ export class MateSolver {
             for (let r = 0; r < base.length; r++) block[r][i * 6 + j] = (rp[r] - rm[r]) / 2e-6;
           }
           work.set(id, pl.get(id)!);
+        }
+        if (coupled) {
+          const ids = mateBodies(m).filter((id) => index.has(id));
+          // Only where the mates before it already link its components (a loop) can it contradict them.
+          if (isCoupling(m) && ids.length > 1 && ids.every((id) => top(id) === top(ids[0])) && contradicts(J, block[block.length - 1], ids.map((id) => index.get(id)!), n)) {
+            conflicts.add(m.id);
+            continue;
+          }
+          for (const id of ids.slice(1)) coupled.set(top(id), top(ids[0]));
         }
         J.push(...block);
       }
@@ -1234,6 +1247,40 @@ export function matesMoving(body: Id, bodies: SolverBody[], mates: SolverMate[])
     }
   }
   return mates.filter((m) => mateBodies(m).some((id) => linked.has(id)));
+}
+
+const isCoupling = (m: SolverMate) => m.type === 'gear' || m.type === 'rackPinion' || m.type === 'screw';
+
+/**
+ * Whether a coupling mate (its row `c` of the Jacobian) contradicts the mates
+ * before it (rows J, n variables): they let its components (`bodies`, by
+ * index) move, related another way, and with it they cannot move at all (two
+ * gear mates with different ratios between the same gears: they hold only
+ * while nothing turns).
+ */
+function contradicts(J: number[][], c: number[], bodies: number[], n: number): boolean {
+  const { basis } = nullSpace(J, n);
+  if (!basis.length) return false;
+  let vmax = 0, cmax = 0;
+  for (const v of basis) for (const x of v) vmax = Math.max(vmax, Math.abs(x));
+  for (const x of c) cmax = Math.max(cmax, Math.abs(x));
+  // What the mate asks of each motion the others allow.
+  const g = basis.map((v) => v.reduce((s, x, j) => s + x * c[j], 0));
+  const gg = g.reduce((s, x) => s + x * x, 0);
+  if (Math.sqrt(gg) <= 1e-7 * cmax * vmax) return false;
+  let moved = false;
+  for (const b of bodies) {
+    for (let j = b * 6; j < b * 6 + 6; j++) {
+      const row = basis.map((v) => v[j]);
+      const rmax = Math.max(...row.map(Math.abs));
+      if (rmax <= 1e-6 * vmax) continue;
+      moved = true;
+      // With the mate, this variable can still change unless it changes only along g.
+      const k = row.reduce((s, x, i) => s + x * g[i], 0) / gg;
+      if (row.some((x, i) => Math.abs(x - k * g[i]) > 1e-6 * rmax)) return false;
+    }
+  }
+  return moved;
 }
 
 /** How far each drive is from its motion: radians for turns, lengths over L for moves. */

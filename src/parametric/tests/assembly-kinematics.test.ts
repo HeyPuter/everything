@@ -160,6 +160,29 @@ describe('mechanical mates', () => {
     expect(turnAbout(turned.placements.get('B')!.q, [0, 0, 0, 1], Z)).toBeCloseTo(0.25, 5);
   });
 
+  it('a gear mate contradicting the mates before it is over defined; a repeated or consistent one is not', () => {
+    const s = gears();
+    const [h1, h2, g1] = s.mates;
+    const other = { ...g1, id: 'g2', value2: 60 };
+    const r = new MateSolver(s.bodies, [h1, h2, g1, other]).analyze();
+    expect(r.status).toBe('over');
+    expect([...r.conflicts]).toEqual(['g2']);
+    expect(r.dof).toBe(1);
+    expect(new MateSolver(s.bodies, [h1, h2, g1, { ...g1, id: 'g3' }]).analyze().status).toBe('under');
+    // Three external gears in a ring cannot turn; with an internal one (reversed) they can.
+    const C = body('C', false, [15, 26, 0]);
+    const ring = (reverse: boolean) => [h1, h2, hinge('g', [15, 26, 0], 'C', [0, 0, 0]), { ...g1, value2: 20 }, mate('gear', ['B', axis([0, 0, 0])], ['C', axis([0, 0, 0])], { value: 20, value2: 20 }), mate('gear', ['C', axis([0, 0, 0])], ['A', axis([0, 0, 0])], { value: 20, value2: 20, reverse, id: 'last' })];
+    const odd = new MateSolver([...s.bodies, C], ring(false)).analyze();
+    expect([...odd.conflicts]).toEqual(['last']);
+    const even = new MateSolver([...s.bodies, C], ring(true)).analyze();
+    expect(even.status).toBe('under');
+    expect(even.dof).toBe(1);
+    // A gear meshing with a fixed one just holds it.
+    const held = new MateSolver(s.bodies, [h1, h2, mate('gear', ['A', axis([0, 0, 0])], ['g', axis([30, 0, 0])], { value: 20, value2: 40 })]).analyze();
+    expect(held.conflicts.size).toBe(0);
+    expect(held.defined.has('A')).toBe(true);
+  });
+
   it('dragging one gear by a tooth turns the other', () => {
     const s = gears();
     let pl = s.analyze().placements;
