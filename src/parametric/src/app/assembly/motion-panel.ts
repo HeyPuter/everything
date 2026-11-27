@@ -378,22 +378,13 @@ export class MotionStudyPanel extends PropertyPanel {
   private pointOf(it: SelItem, comp: Id): SelBoxItem | null {
     const mode = this.mode;
     let world: Vec3 | null = null, owner: Id | undefined, label = '';
-    if (it.kind === 'vertex') { world = it.p; label = 'Vertex'; owner = this.nearestComp(it.p); }
+    if (it.kind === 'vertex') { world = it.p; label = 'Vertex'; owner = mode.vertexOf(it.p)?.comp; }
     if (it.kind === 'face') { const f = this.app.faces[it.index]; owner = mode.faceComponent(it.index)?.id; world = f?.center ?? null; label = `Face (${f?.type}) centre`; }
     if (it.kind === 'edge') { const e = this.app.edges[it.index]; owner = mode.edgeComponent(it.index)?.id; world = e ? e.center ?? e.mid : null; label = `Edge (${e?.type}) ${e?.center ? 'centre' : 'midpoint'}`; }
     const pl = mode.shownPlacement(comp);
     if (!world || !pl || owner !== comp) return null;
     const local = relativePlacement(pl, { p: world, q: [0, 0, 0, 1] }).p;
     return { item: it, data: { comp, local, label }, label };
-  }
-
-  private nearestComp(p: Vec3): Id | undefined {
-    let best: Id | undefined, d = Infinity;
-    this.app.faces.forEach((f, i) => {
-      const x = len([f.center[0] - p[0], f.center[1] - p[1], f.center[2] - p[2]]);
-      if (x < d) { d = x; best = this.mode.faceComponent(i)?.id; }
-    });
-    return best;
   }
 
   /** The plotted series: values per frame, with its name and unit. */

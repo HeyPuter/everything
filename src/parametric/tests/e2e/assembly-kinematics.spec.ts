@@ -802,3 +802,40 @@ test('an interference check over a motion can be cancelled, and checked again', 
   await pm.getByRole('button', { name: 'Cancel' }).first().click();
   expect(errors).toEqual([]);
 });
+
+test('a motion study plots a picked vertex of the component even where another component touches it', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  await newAssemblyWith(page, [['Plate', PLATE], ['Bar', BAR], ['Small', disc(10)]], ['Plate', 'Bar', 'Small']);
+  await built(page, ['Plate<1>', 'Bar<1>', 'Small<1>']);
+  const pm = page.locator('.pm');
+  // The disc's face centre sits on the bar's corner (both at the same place, 50 mm in front of the plate).
+  await page.evaluate(() => {
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
+    m.commit('Place', (d) => { for (const c of d.components) if (!c.fixed) c.placement = { p: [0, 0, 50], q: [0, 0, 0, 1] }; });
+  });
+  await page.waitForFunction(() => {
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
+    return m.doc.components.every((c) => c.fixed || m.shownPlacement(c.id)!.p[2] === 50);
+  });
+  // A linear motor moving the bar along x at 10 mm/s.
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await pm.getByRole('button', { name: 'Add Motor' }).click();
+  await pm.getByRole('group', { name: 'Motor type' }).getByRole('button', { name: 'Linear' }).click();
+  await pm.getByRole('group', { name: 'Motor direction' }).click();
+  await pick(page, { comp: 'Bar<1>', edge: 'x' });
+  await pm.getByRole('textbox', { name: 'Speed' }).fill('10');
+  await pm.getByRole('textbox', { name: 'Speed' }).press('Enter');
+  await pm.getByRole('button', { name: 'Add', exact: true }).click();
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('status').filter({ hasText: 'Calculated 151 frames' })).toBeVisible();
+  await pm.getByRole('button', { name: 'Pause' }).click();
+  await pm.getByRole('button', { name: 'To the start' }).click();
+  await pm.getByRole('combobox', { name: 'Result of' }).selectOption({ label: 'Component: Bar<1>' });
+  // The bar's corner vertex (where the disc's face centre is) is a point of the bar.
+  await pm.getByRole('group', { name: 'Point (optional)' }).click();
+  await page.evaluate(() => { (window as unknown as { __parametric: A }).__parametric.panel!.onPick({ kind: 'vertex', p: [0, 0, 50] }, false); });
+  await expect(pm.getByRole('group', { name: 'Point (optional)' })).toContainText('Vertex');
+  await pm.getByRole('button', { name: 'Cancel' }).first().click();
+  expect(errors).toEqual([]);
+});
