@@ -1028,3 +1028,90 @@ test('a cam mate with a roller follower offers no Flip Follower Face', async ({ 
   await page.keyboard.press('Escape');
   expect(errors).toEqual([]);
 });
+
+test('interference over a motion lists a part sunk into another in every frame', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  const pm = await hingedGears(page);
+  // A second plate, fixed half into the first one and into the large gear.
+  await insert(page, 'Plate');
+  await built(page, ['Plate<2>']);
+  await page.evaluate(() => {
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
+    m.commit('Sink', (d) => { const c = d.components.find((x) => x.name === 'Plate<2>')!; c.placement = { p: [50, 30, 5], q: [0, 0, 0, 1] }; c.fixed = true; });
+  });
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await hingeMotor(page);
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('status').filter({ hasText: 'Calculated 151 frames' })).toBeVisible();
+  await pm.getByRole('button', { name: 'Check Interference' }).click();
+  await expect(pm.getByRole('status').filter({ hasText: /overlap in|No interference/ })).toHaveText('Components overlap in 40 of the frames checked.', { timeout: 60_000 });
+  const list = await pm.getByRole('list', { name: 'Interference over the motion' }).getByRole('listitem').allInnerTexts();
+  expect(list).toHaveLength(40);
+  for (const f of list) expect(f).toContain('Plate<1> and Plate<2>');
+  await pm.getByRole('button', { name: 'Cancel' }).first().click();
+  expect(errors).toEqual([]);
+});
+
+test('interference over a motion checked again after cancelled checks lists the same frames', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  await newAssemblyWith(page, [['Plate', PLATE], ['Bar', BAR]], ['Plate', 'Bar', 'Bar']);
+  await built(page, ['Plate<1>', 'Bar<1>', 'Bar<2>']);
+  const pm = page.locator('.pm');
+  // The first bar slides along the plate (along y) through the second, fixed 27 mm up: they overlap for part of the motion only.
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    a.selection.clear();
+    a.assembly!.commit('Place', (d) => { const c = d.components.find((x) => x.name === 'Bar<2>')!; c.placement = { p: [0, 27, 10], q: [0, 0, 0, 1] }; c.fixed = true; });
+  });
+  await page.locator('.cm [data-cmd="mate"]').click();
+  await pm.getByRole('combobox', { name: 'Mate type' }).selectOption('slider');
+  await pick(page, { comp: 'Plate<1>', face: 'E1:cap1' });
+  await pick(page, { comp: 'Plate<1>', face: 'E1:side:rl1' });
+  await pick(page, { comp: 'Bar<1>', face: 'E1:cap0' });
+  await pick(page, { comp: 'Bar<1>', face: 'E1:side:rl1' });
+  await pm.getByRole('button', { name: 'OK' }).click();
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await pm.getByRole('button', { name: 'Add Motor' }).click();
+  await pm.getByRole('group', { name: 'Motor type' }).getByRole('button', { name: 'Linear' }).click();
+  await pm.getByRole('combobox', { name: 'Motor on' }).selectOption({ label: 'Slider1 (Slider)' });
+  await pm.getByRole('textbox', { name: 'Speed' }).fill('10');
+  await pm.getByRole('textbox', { name: 'Speed' }).press('Enter');
+  await pm.getByRole('button', { name: 'Add', exact: true }).click();
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('status').filter({ hasText: 'Calculated 151 frames' })).toBeVisible();
+  await pm.getByRole('button', { name: 'Pause' }).click();
+  const list = () => pm.getByRole('list', { name: 'Interference over the motion' }).getByRole('listitem').allInnerTexts();
+  const done = pm.getByRole('status').filter({ hasText: /overlap in|No interference/ });
+  await pm.getByRole('button', { name: 'Check Interference' }).click();
+  await expect(done).toHaveText('Components overlap in 15 of the frames checked.', { timeout: 60_000 });
+  const first = await list();
+  expect(first[0]).toMatch(/^1\.80 s\nBar<1> and Bar<2>$/);
+  // Shown where the bars overlap (the frames a mixed up scene would add to are those where they do not).
+  const overlapping = () => pm.getByRole('list', { name: 'Interference over the motion' }).getByRole('button').first().click();
+  await overlapping();
+  // Each frame's check waits in the worker; checks cancelled part way (one while it plays back), then one to the end.
+  await page.evaluate(() => {
+    const k = (window as unknown as { __parametric: A }).__parametric.kernel as unknown as { assembly: (op: { op: string }) => Promise<unknown> };
+    const real = k.assembly.bind(k);
+    // (The scene op is slowed too, so a cancelled check is still at work when the next one starts.)
+    k.assembly = async (op) => { const r = await real(op); if (op.op === 'interference' || op.op === 'scene') await new Promise((later) => setTimeout(later, op.op === 'scene' ? 150 : 40)); return r; };
+  });
+  for (let round = 0; round < 3; round++) {
+    await pm.getByRole('button', { name: 'Check Interference' }).click();
+    await page.waitForTimeout(500 + 300 * round);
+    await pm.locator('.pm-section').filter({ has: page.getByRole('progressbar', { name: 'Interference check progress' }) }).getByRole('button', { name: 'Cancel' }).click();
+    if (round === 1) {
+      await pm.getByRole('button', { name: 'Play', exact: true }).click();
+      await page.waitForTimeout(200);
+      await pm.getByRole('button', { name: 'Pause' }).click();
+      await overlapping();
+    }
+  }
+  await pm.getByRole('button', { name: 'Check Interference' }).click();
+  await expect(done).toHaveText('Components overlap in 15 of the frames checked.', { timeout: 60_000 });
+  expect(await list()).toEqual(first);
+  await pm.getByRole('button', { name: 'Cancel' }).first().click();
+  expect(errors).toEqual([]);
+});
