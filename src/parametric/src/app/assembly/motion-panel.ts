@@ -273,6 +273,16 @@ export class MotionStudyPanel extends PropertyPanel {
     const end = res.times[res.times.length - 1];
     const slider = h('input', { type: 'range', min: '0', max: '1000', step: '1', value: String(Math.round((this.t / Math.max(end, 1e-9)) * 1000)), 'aria-label': 'Study time', class: 'kin-slider' }) as HTMLInputElement;
     slider.addEventListener('input', () => { this.play(false); this.t = (Number(slider.value) / 1000) * end; this.showAt(this.t); });
+    // Arrow keys step one frame (a thousandth of the study can be short of the next frame, or skip many).
+    slider.addEventListener('keydown', (e) => {
+      const d = e.key === 'ArrowRight' || e.key === 'ArrowUp' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowDown' ? -1 : 0;
+      if (!d || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      e.preventDefault();
+      this.play(false);
+      this.t = res.times[Math.max(0, Math.min(res.times.length - 1, frameAt(res, this.t) + d))];
+      slider.value = String(Math.round((this.t / Math.max(end, 1e-9)) * 1000));
+      this.showAt(this.t);
+    });
     this.slider = slider;
     this.clock = h('div', { class: 'field-label kin-clock', 'aria-live': 'off' });
     const play = h('button', { class: 'btn small', type: 'button', disabled: this.checking }, icon(this.playing ? 'pause' : 'play', 16), this.playing ? 'Pause' : 'Play') as HTMLButtonElement;

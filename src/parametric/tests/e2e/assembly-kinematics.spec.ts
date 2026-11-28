@@ -769,6 +769,17 @@ test('the motion study time slider works from the keyboard and reads out the tim
   await expect(slider).toHaveAttribute('aria-valuetext', '5.00 s of 5.00 s');
   await page.keyboard.press('PageDown');
   await expect(slider).toHaveAttribute('aria-valuetext', '4.50 s of 5.00 s');
+  // The arrow keys step one frame (30 a second), not a thousandth of the study.
+  await page.keyboard.press('ArrowRight');
+  await expect(slider).toHaveAttribute('aria-valuetext', '4.53 s of 5.00 s');
+  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('ArrowLeft');
+  await expect(slider).toHaveAttribute('aria-valuetext', '4.47 s of 5.00 s');
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowLeft');
+  await expect(slider).toHaveAttribute('aria-valuetext', '0.00 s of 5.00 s');
+  await page.keyboard.press('ArrowUp');
+  await expect(slider).toHaveAttribute('aria-valuetext', '0.03 s of 5.00 s');
   await pm.getByRole('button', { name: 'Cancel' }).click();
   expect(errors).toEqual([]);
 });
