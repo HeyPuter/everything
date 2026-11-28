@@ -1146,3 +1146,29 @@ test('a long motion study downloads as CSV in parts that join into the same rows
   await pm.getByRole('button', { name: 'Cancel' }).first().click();
   expect(errors).toEqual([]);
 });
+
+test('a motion study plots the turn of a hinge without limits, from where it started', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  const pm = await hingedGears(page);
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await hingeMotor(page);
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('status').filter({ hasText: 'Calculated 151 frames' })).toBeVisible();
+  await pm.getByRole('button', { name: 'Pause' }).click();
+  // 90°/s for 5 s: the small gear's hinge turns 450°, the large one's half as far the other way.
+  await pm.getByRole('combobox', { name: 'Result of' }).selectOption({ label: 'Mate: Hinge1' });
+  await expect(pm.getByRole('img', { name: /^Plot of Hinge1 value \(°\)/ })).toHaveAttribute('aria-label', /from (0 to 450|-450 to 0)$/);
+  await pm.getByRole('combobox', { name: 'Result of' }).selectOption({ label: 'Mate: Hinge2' });
+  await expect(pm.getByRole('img', { name: /^Plot of Hinge2 value \(°\)/ })).toHaveAttribute('aria-label', /from (0 to 225|-225 to 0)$/);
+  await pm.getByRole('combobox', { name: 'Quantity' }).selectOption({ label: 'Rate of change' });
+  await expect(pm.getByRole('img', { name: /^Plot of Hinge2 rate of change \(°\/s\)/ })).toHaveAttribute('aria-label', /from (45 to 45|-45 to -45)$/);
+  const download = page.waitForEvent('download');
+  await pm.getByRole('button', { name: 'Download CSV' }).click();
+  const { readFileSync } = await import('node:fs');
+  const csv = new TextDecoder().decode(readFileSync(await (await download).path())).split('\n');
+  expect(csv[0]).toBe('Time (s),Value (deg),Rate (deg/s),Second derivative (deg/s^2)');
+  expect(Math.abs(Number(csv[151].split(',')[1]))).toBeCloseTo(225, 3);
+  await pm.getByRole('button', { name: 'Cancel' }).first().click();
+  expect(errors).toEqual([]);
+});

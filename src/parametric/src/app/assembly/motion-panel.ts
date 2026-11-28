@@ -6,7 +6,7 @@
 
 import { type MotionResult, derivatives, mateSeries, pointPath, resultsCsv, turnPath, vectorDerivatives } from '../../assembly/motion';
 import { type SolverMate, relativePlacement } from '../../assembly/solver';
-import { type Vec3, len } from '../../math/vec';
+import { type Quat, type Vec3, len } from '../../math/vec';
 import { type MotionMotor, type MotionProfile, type MotionStudy, MATE_LABELS, nextAsmId } from '../../model/assembly';
 import type { Id, Param } from '../../model/types';
 import { UNIT_SYSTEMS } from '../../model/units';
@@ -334,7 +334,16 @@ export class MotionStudyPanel extends PropertyPanel {
   /** The mates a result can be plotted for (those that measure something). */
   private measurable(): SolverMate[] {
     const { mates } = this.mode.solverInput();
-    return mates.filter((m) => m.type === 'distance' || m.type === 'angle' || ((m.type === 'hinge' || m.type === 'slider') && m.rel) || m.type === 'slot');
+    return mates.filter((m) => m.type === 'distance' || m.type === 'angle' || m.type === 'hinge' || (m.type === 'slider' && m.rel) || m.type === 'slot');
+  }
+
+  /** A mate's values over the motion. A hinge without limits (which keeps no 0° position) measures its turn from the start. */
+  private mateSeries(res: MotionResult, m: SolverMate) {
+    if (m.type === 'hinge' && !m.rel) {
+      const at = (body?: Id | null) => (body ? res.frames[0].get(body) : undefined) ?? { p: [0, 0, 0] as Vec3, q: [0, 0, 0, 1] as Quat };
+      m = { ...m, rel: relativePlacement(at(m.a.body), at(m.b.body)) };
+    }
+    return mateSeries(res, m, 100);
   }
 
   private resultsSection(res: MotionResult): HTMLElement {
@@ -397,7 +406,7 @@ export class MotionStudyPanel extends PropertyPanel {
     const per = ['', '/s', '/s²'][this.quantity];
     if (this.target.startsWith('mate:')) {
       const m = this.measurable().find((x) => x.id === this.target.slice(5));
-      const s = m && mateSeries(res, m, 100);
+      const s = m && this.mateSeries(res, m);
       if (!m || !s) return null;
       const vals = this.quantity === 0 ? s.values : derivatives(res.times, s.values)[this.quantity === 1 ? 'd1' : 'd2'];
       const lengthy = s.kind === 'length';
@@ -475,7 +484,7 @@ export class MotionStudyPanel extends PropertyPanel {
     const cols: { name: string; values: number[] }[] = [{ name: 'Time (s)', values: res.times }];
     if (this.target.startsWith('mate:')) {
       const m = this.measurable().find((x) => x.id === this.target.slice(5));
-      const s = m && mateSeries(res, m, 100);
+      const s = m && this.mateSeries(res, m);
       if (!s) return;
       const k = s.kind === 'length' ? 1 / u.scale : 1, unit = s.kind === 'length' ? u.length : 'deg';
       const d = derivatives(res.times, s.values);
