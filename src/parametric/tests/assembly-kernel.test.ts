@@ -6,7 +6,8 @@ import * as R from 'replicad';
 import { AssemblyBuilder, type AsmPartResult, type AsmSceneItem } from '../src/kernel/assembly';
 import { bbox, setOc, subShapes, volumeOf, wrap } from '../src/kernel/occ';
 import { ModelBuilder } from '../src/kernel/build';
-import { placementMatrix } from '../src/assembly/compose';
+import { faceGeo, placementMatrix } from '../src/assembly/compose';
+import { mateProblem } from '../src/assembly/solver';
 import { qAxisAngle } from '../src/math/vec';
 import type { Placement } from '../src/model/assembly';
 import { circle, extrude, rect, sketch } from './helpers';
@@ -103,6 +104,28 @@ describe('assembly geometry', () => {
     expect(pairs.map((p) => [p.a, p.b])).toEqual([[0, 2]]);
     expect(pairs[0].volume).toBeCloseTo(Math.PI * 9 * 10, 1);
     expect(pairs[0].mesh).toBeNull();
+  });
+
+  it('gives conical faces (a chamfered shaft) an axis for mates', async () => {
+    const a = new AssemblyBuilder();
+    const shaft = [sketch('S1', circle(5, 7, 4)), extrude('E1', 'S1', 30)];
+    const [plain] = await a.build([{ key: 'p', features: shaft, blobs: {}, quality: 0 }]);
+    const top = plain.faces.find((f) => f.name === 'E1:cap1')!;
+    const chamfer = { id: 'C', name: 'C', type: 'chamfer', edges: [], faces: [{ name: top.name, sig: { type: top.type, c: top.center, n: top.normal, area: top.area } }], mode: 'distance', distance: 1, distance2: 1, angle: 45, flip: false } as unknown as Feature;
+    const [res] = await a.build([{ key: 'c', features: [...shaft, chamfer], blobs: {}, quality: 0 }]);
+    const i = res.faces.findIndex((f) => f.type === 'cone');
+    expect(i).toBeGreaterThanOrEqual(0);
+    const ax = res.cones[i];
+    expect(ax).toBeTruthy();
+    // Along z, through the shaft's centre (5, 7).
+    expect(Math.abs(ax.d[2])).toBeCloseTo(1, 9);
+    expect(ax.p[0]).toBeCloseTo(5, 6);
+    expect(ax.p[1]).toBeCloseTo(7, 6);
+    // A concentric mate on it: the cone's axis on a cylinder's.
+    const g = { mesh: res.mesh, faces: res.faces, edges: res.edges, bbox: res.bbox, cones: res.cones };
+    const cone = faceGeo(g, i)!;
+    expect(cone).toMatchObject({ kind: 'axis', surface: 'cone' });
+    expect(mateProblem('concentric', cone, { kind: 'axis', p: [0, 0, 0], d: [0, 0, 1], r: 4, surface: 'cylinder' })).toBeNull();
   });
 
   it('reports a pair whose overlap cannot be computed as not checked, never as clear', async () => {

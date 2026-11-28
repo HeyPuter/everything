@@ -113,9 +113,7 @@ export class AssemblyBuilder {
       let b = this.builders.get(p.key);
       if (!b) this.builders.set(p.key, (b = new ModelBuilder()));
       const res: BuildResult = await b.build({ features: p.features, upTo: p.features.length, blobs: p.blobs, quality: p.quality, invalid: p.invalid });
-      const shapes = b.currentShapes();
-      const cones: AsmPartResult['cones'] = {};
-      shapes.faces.forEach((f, i) => { if (f.desc.type === 'cone') { const ax = coneAxis(f.shape); if (ax) cones[i] = ax; } });
+      const cones = coneAxes(res);
       out.push({ key: p.key, quality: p.quality, mesh: copyMesh(res.mesh), faces: res.faces, edges: res.edges, bbox: res.bbox, status: res.status, cones });
     }
     this.placedCache.clear();
@@ -454,21 +452,19 @@ export function place(shape: Sh, m: number[]): Sh {
   }
 }
 
-function coneAxis(face: Sh): { p: Vec3; d: Vec3 } | null {
-  const oc = getOc();
-  const ad = new oc.BRepAdaptor_Surface(face.wrapped, true);
-  try {
-    const cone = ad.Cone();
-    const ax = cone.Axis();
-    const loc = ax.Location(), dd = ax.Direction();
-    const out = { p: xyz(loc), d: xyz(dd) };
-    loc.delete(); dd.delete(); ax.delete(); cone.delete();
-    return out;
-  } catch {
-    return null;
-  } finally {
-    ad.delete();
-  }
+/**
+ * The axes of a part's conical faces (by face index), from a circular edge of
+ * each (this OpenCascade build cannot give a cone's own axis: its gp_Cone is
+ * not bound).
+ */
+function coneAxes(res: BuildResult): AsmPartResult['cones'] {
+  const cones: AsmPartResult['cones'] = {};
+  res.faces.forEach((f, i) => {
+    if (f.type !== 'cone') return;
+    const e = res.edges.find((x) => x.type === 'circle' && x.center && x.axis && x.faces.includes(i));
+    if (e) cones[i] = { p: e.center!, d: e.axis! };
+  });
+  return cones;
 }
 
 function boxesOverlap(a: { min: Vec3; max: Vec3 }, b: { min: Vec3; max: Vec3 }): boolean {
