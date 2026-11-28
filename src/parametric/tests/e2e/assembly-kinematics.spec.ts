@@ -1115,3 +1115,34 @@ test('interference over a motion checked again after cancelled checks lists the 
   await pm.getByRole('button', { name: 'Cancel' }).first().click();
   expect(errors).toEqual([]);
 });
+
+test('a long motion study downloads as CSV in parts that join into the same rows', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  const pm = await hingedGears(page);
+  await page.locator('.cm [data-cmd="motionStudy"]').click();
+  await hingeMotor(page);
+  // 30 s at 240 frames a second: 7201 rows, over the 5000 of a part.
+  await pm.getByRole('spinbutton', { name: 'Duration (s)' }).fill('30');
+  await pm.getByRole('spinbutton', { name: 'Duration (s)' }).press('Enter');
+  await pm.getByRole('spinbutton', { name: 'Frames per second' }).fill('240');
+  await pm.getByRole('spinbutton', { name: 'Frames per second' }).press('Enter');
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('status').filter({ hasText: 'Calculated 7201 frames' })).toBeVisible({ timeout: 60_000 });
+  await pm.getByRole('button', { name: 'Pause' }).click();
+  const download = page.waitForEvent('download');
+  await pm.getByRole('button', { name: 'Download CSV' }).click();
+  const { readFileSync } = await import('node:fs');
+  const text = new TextDecoder().decode(readFileSync(await (await download).path()));
+  expect(text.endsWith('\n')).toBe(false);
+  const lines = text.split('\n');
+  expect(lines).toHaveLength(7202);
+  expect(lines[0]).toMatch(/^Time \(s\),Displacement X \(mm\),/);
+  const cols = lines[0].split(',').length;
+  for (const [i, l] of lines.entries()) if (i) {
+    expect(l.split(',')).toHaveLength(cols);
+    expect(Number(l.split(',')[0])).toBeCloseTo((i - 1) / 240, 6);
+  }
+  await pm.getByRole('button', { name: 'Cancel' }).first().click();
+  expect(errors).toEqual([]);
+});

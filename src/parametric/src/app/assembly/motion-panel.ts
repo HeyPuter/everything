@@ -490,7 +490,7 @@ export class MotionStudyPanel extends PropertyPanel {
       ['Angle', 'Angular velocity', 'Angular acceleration'].forEach((n, i) => add(n, v.angular[i], `deg${['', '/s', '/s^2'][i]}`, 1));
     }
     const label = this.target.startsWith('mate:') ? this.mode.doc.mates.find((x) => x.id === this.target.slice(5))?.name : this.mode.component(this.target.slice(5))?.name;
-    download(resultsCsv(cols), `${safeName(this.study.name || 'Motion Study')} ${safeName(label ?? '')}.csv`, 'text/csv');
+    download(new Blob(csvParts(cols), { type: 'text/csv' }), `${safeName(this.study.name || 'Motion Study')} ${safeName(label ?? '')}.csv`);
   }
 
   // ---------- a motor ----------
@@ -692,6 +692,19 @@ function plotPoints(times: number[], values: number[], end: number): number[] {
     i = j + 1;
   }
   return out;
+}
+
+/**
+ * A results CSV in parts of a few thousand rows, the same text as
+ * resultsCsv(cols) (a long study's would otherwise be one string of hundreds
+ * of megabytes, with its rows held besides).
+ */
+function csvParts(cols: { name: string; values: number[] }[], rows = 5000): string[] {
+  const n = Math.max(0, ...cols.map((c) => c.values.length));
+  const head = resultsCsv(cols.map((c) => ({ name: c.name, values: [] })));
+  const parts = [head];
+  for (let i = 0; i < n; i += rows) parts.push(resultsCsv(cols.map((c) => ({ name: c.name, values: c.values.slice(i, i + rows) }))).slice(head.length));
+  return parts;
 }
 
 /** The frame nearest time t. */
