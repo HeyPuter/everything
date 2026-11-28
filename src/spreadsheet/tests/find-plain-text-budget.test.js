@@ -1,7 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { findAll, searchBudget } from '../src/core/search.js';
-import { createFindBar } from '../src/ui/findbar.js';
 import { Workbook } from '../src/core/workbook.js';
 
 // A plain-text Find evaluated and formatted every cell of the sheet, on every pause in typing, with no
@@ -68,21 +67,4 @@ describe('a plain-text search', () => {
   });
 });
 
-describe('the find bar', () => {
-  let bar;
-  beforeEach(() => vi.useFakeTimers());
-  afterEach(() => { bar?.destroy(); bar = null; vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); document.body.replaceChildren(); });
-
-  it('gives a plain-text search a budget and says when it ran out', { timeout: 60000 }, () => {
-    const { wb, id } = book();
-    const grid = { active: { r: 0, c: 0 }, range: { r1: 0, c1: 0, r2: 0, c2: 0 }, setHighlights: vi.fn(), setSelection: vi.fn((s) => { grid.active = s.active; }), focus: vi.fn() };
-    bar = createFindBar({ wb, grid, sheetId: () => id, activeCell: () => null, announce: vi.fn(), subscribe: () => vi.fn() });
-    document.body.append(bar.el);
-    bar.open();
-    const query = bar.el.querySelector('[aria-label="Find"]');
-    fakeClock(2000);
-    query.value = 'name'; query.dispatchEvent(new Event('input'));
-    vi.advanceTimersByTime(150);
-    expect(bar.el.querySelector('.find-count').textContent).toMatch(/^1 of \d+ \(search stopped: too much to search\)$/);
-  });
-});
+// The find bar no longer stops at a budget: it searches on in slices (see find-large-workbook.test.js).

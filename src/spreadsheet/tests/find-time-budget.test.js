@@ -55,7 +55,7 @@ describe('the find bar', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => { bar?.destroy(); vi.clearAllTimers(); vi.useRealTimers(); vi.restoreAllMocks(); vi.clearAllMocks(); document.body.replaceChildren(); });
 
-  it('says a regular-expression search stopped early, shows what it found, and tells Replace all the same', () => {
+  it('searches on to the end with a regular expression too, and Replace all replaces every match', () => {
     const { wb, id } = book(300);
     const grid = { active: { r: 0, c: 0 }, range: { r1: 0, c1: 0, r2: 0, c2: 0 }, setHighlights: vi.fn(), setSelection: vi.fn((s) => { grid.active = s.active; }), focus: vi.fn() };
     bar = createFindBar({ wb, grid, sheetId: () => id, activeCell: () => null, announce: vi.fn(), subscribe: () => vi.fn() });
@@ -67,18 +67,17 @@ describe('the find bar', () => {
     const count = bar.el.querySelector('.find-count');
     fakeClock(600);
     query.value = 'a'; query.dispatchEvent(new Event('input'));
-    vi.advanceTimersByTime(150);
-    expect(count.textContent).toMatch(/^1 of \d+ \(search stopped: the pattern is slow\)$/);
-    const found = Number(/of (\d+)/.exec(count.textContent)[1]);
-    expect(found).toBeGreaterThan(0);
-    expect(found).toBeLessThan(300);
+    vi.advanceTimersByTime(120);
+    // A slow search shows what it has found so far, and goes on between frames instead of stopping.
+    expect(count.textContent).toMatch(/^1 of \d+ \(still searching\)$/);
+    expect(Number(/of (\d+)/.exec(count.textContent)[1])).toBeLessThan(300);
+    vi.runAllTimers();
+    expect(count.textContent).toBe('1 of 300');
     bar.el.querySelector('[aria-label="Replace with"]').value = 'b';
     [...bar.el.querySelectorAll('button')].find((b) => b.textContent === 'Replace all').click();
-    expect(toast).toHaveBeenLastCalledWith(`Replaced ${found} cells; the search stopped early, so more may remain`, expect.objectContaining({ icon: 'check' }));
+    vi.runAllTimers();
+    expect(toast).toHaveBeenLastCalledWith('Replaced 300 cells', expect.objectContaining({ icon: 'check' }));
     expect(wb.getValue(id, 0, 0)).toBe('b');
-    expect(wb.getValue(id, 299, 0)).toBe('a');
-    // A plain-text search has a budget of its own, three times as long: this one is well inside it.
-    regex.checked = false; regex.dispatchEvent(new Event('change'));
-    expect(count.textContent).toMatch(/^1 of \d+$/);
+    expect(wb.getValue(id, 299, 0)).toBe('b');
   });
 });

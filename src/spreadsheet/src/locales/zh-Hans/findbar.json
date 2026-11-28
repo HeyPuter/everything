@@ -38,6 +38,7 @@
   "noMatchesFor": "找不到“{query}”的匹配项",
   "note.cellsSkipped": "已跳过超过 {limit, number} 个字符的单元格",
   "note.join": "{list}；{note}",
+  "note.stillSearching": "仍在搜索",
   "note.stoppedSlow": "搜索已停止：模式太慢",
   "note.stoppedTooMuch": "搜索已停止：要搜索的内容过多",
   "nothingToReplace": "没有可替换的内容",

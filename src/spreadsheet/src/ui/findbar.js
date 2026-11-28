@@ -7,7 +7,7 @@
 import { isComposing, el, fieldId } from './dom.js';
 import { icon } from './icons.js';
 import { toast } from './toast.js';
-import { compilePattern, findAll, findAllSheets, nextIndex, patternSubjectLimit, replaceCells, searchBudget } from '../core/search.js';
+import { compilePattern, createSearch, nextIndex, patternSubjectLimit, replaceCells, searchOrder } from '../core/search.js';
 import { nestedRepeat } from '../core/formula/regex-safety.js';
 import { cellName, rangeName } from '../core/cell.js';
 import * as S from '../core/selection.js';
@@ -129,8 +129,9 @@ export function createFindBar(ctx) {
     const problem = patternProblem();
     if (problem) query.setAttribute('aria-invalid', 'true');
     else query.removeAttribute('aria-invalid');
-    const pending = debounce !== null;
-    const unavailable = !query.value || !!problem || (!pending && !matches.length);
+    // Waiting to search after typing, or searching on with nothing found yet.
+    const pending = debounce !== null || (!!running && !matches.length);
+    const unavailable = !query.value || !!problem || (debounce === null && !matches.length);
     const actionFocused = [prevBtn, nextBtn, replaceBtn, replaceAllBtn].includes(document.activeElement);
     prevBtn.disabled = nextBtn.disabled = replaceBtn.disabled = replaceAllBtn.disabled = unavailable;
     if (unavailable && actionFocused) query.focus();
@@ -151,47 +152,147 @@ export function createFindBar(ctx) {
     if (resultsVisible) results.render(matches, current, !query.value ? t('findbar.enterTerm') : problem || (pending ? t('findbar.searching') : ''));
   }
 
-  let stopped = false; // the last search ran out of time, so the matches are only those found by then
+  // A search runs for a moment before the panel answers, which is all a sheet of ordinary size needs. On a larger
+  // workbook it goes on in short slices between frames, adding matches as it finds them, so the page stays live
+  // and every cell is searched. It used to stop after a few seconds with "too much to search", and the cells it
+  // had not reached could not be found at all. Only an array spilled over most of a sheet comes near these
+  // limits: past a minute of searching, or a million matches, the search stops and says so.
+  const FIRST_SLICE = 100, SLICE = 40, SHOW_EVERY = 250, MAX_TIME = 60000, MAX_MATCHES = 1000000;
 
-  let last = null; // the last search that ran to the end: what it was for, the workbook's version then, what it found
+  let stopped = false; // the last search hit those limits, so the matches are only those found by then
+  let last = null; // the last search that finished: what it was for, the workbook's version then, what it found, whether it stopped short
+  let running = null; // a search still going on between frames, or null
+  let waiting = null; // what to do with every match once that search ends: a Replace all or a Find next asked for meanwhile
 
   /**
    * Matches for the current query: one sheet, or every sheet tagged with its id. `since`, a workbook version the
    * last search was run at or after, asks for what changed from then on: when that is cells written and nothing
    * else, only what a write can change is looked at again (see findAll), not every cell of a large sheet on each
-   * Enter while the panel is open.
+   * Enter while the panel is open. On a large workbook the list is what was found in the first slice; the rest
+   * comes in as the search goes on (see proceed).
    */
   function collect(since = null) {
+    cancelRun();
     const q = query.value;
     stopped = false;
     const previous = last;
     last = null;
     if (!q || patternProblem()) return [];
-    // A regular expression is the user's own, and one that backtracks badly could hold the page for as
-    // long as it likes on every keystroke: such a search gets a second, and shows what it found by then.
-    // A plain-text search is bounded but not cheap — a large book takes seconds of it on every pause in
-    // typing, with nothing on screen meanwhile — so it gets a budget too, a longer one.
-    const budget = searchBudget(opts.regex ? 1000 : 3000);
     const searched = JSON.stringify([q, searchOpts(), scope?.sheetId ?? null, opts.allSheets ? homeSheet : ctx.sheetId()]);
-    const changes = since != null && previous?.searched === searched && previous.version >= since ? ctx.wb.changesSince(since) : null;
+    const changes = since != null && previous?.searched === searched && !previous.stopped && previous.version >= since ? ctx.wb.changesSince(since) : null;
     const written = changes?.every((ch) => ch.type === 'cells' && ch.box && ch.sheetId != null)
       ? { previous: previous.found, boxes: changes.map((ch) => ({ sheetId: ch.sheetId, ...ch.box })) } : null;
-    const o = { ...searchOpts(), budget, ...(written ? { written } : {}) };
-    let found = null;
+    const o = { ...searchOpts(), ...(written ? { written } : {}) };
+    let sheets = null;
     if (scope) {
       // A scope is one range on one sheet, whatever the other sheets hold.
       if (!ctx.wb.sheet(scope.sheetId)) { scope = null; opts.selection = false; inputs.selection.input.checked = false; captureScope(); }
-      else found = findAll(ctx.wb, scope.sheetId, q, o).map((m) => ({ ...m, sheetId: scope.sheetId }));
+      else sheets = [scope.sheetId];
     }
-    if (!found && !opts.allSheets) found = findAll(ctx.wb, ctx.sheetId(), q, o).map((m) => ({ ...m, sheetId: ctx.sheetId() }));
-    if (!found) {
+    if (!sheets && !opts.allSheets) sheets = [ctx.sheetId()];
+    if (!sheets) {
       if (!homeSheet || !ctx.wb.sheet(homeSheet)) homeSheet = ctx.sheetId();
-      found = findAllSheets(ctx.wb, q, o, homeSheet);
+      sheets = searchOrder(ctx.wb, homeSheet);
     }
-    stopped = !!budget?.exceeded;
-    if (!stopped) last = { searched, version: ctx.wb.version, found };
-    return found;
+    const job = { search: createSearch(ctx.wb, sheets, q, o), searched, version: ctx.wb.version, sheetId: ctx.sheetId(), spent: 0, timer: null, shown: 0, pick: null, follow: null, moved: false, stopped: false };
+    advance(job, FIRST_SLICE);
+    if (job.search.done) settle(job);
+    else { running = job; job.shown = performance.now(); job.timer = setTimeout(() => proceed(job), 0); }
+    return job.search.matches();
   }
+
+  /** Search on for up to `ms` milliseconds, stopping for good past the limits above. */
+  function advance(job, ms) {
+    const start = performance.now();
+    job.search.run(ms);
+    job.spent += performance.now() - start;
+    if (!job.search.done && (job.spent >= MAX_TIME || job.search.count >= MAX_MATCHES)) { job.search.stop(); job.stopped = true; }
+  }
+
+  /** The search is over: remember what it found, for an edit's quicker search and for Replace all. */
+  function settle(job) {
+    if (running === job) running = null;
+    clearTimeout(job.timer);
+    stopped = job.stopped;
+    last = { searched: job.searched, version: job.version, found: job.search.matches(), stopped };
+  }
+
+  function cancelRun() {
+    if (!running) return;
+    clearTimeout(running.timer);
+    running.search.stop();
+    running = null;
+  }
+
+  /** The next slice of a search that is still going on, between frames. */
+  function proceed(job) {
+    job.timer = null;
+    if (running !== job) return;
+    // The workbook changed under the search, and the panel has not yet been told: what was found may no longer
+    // hold, so the search starts again.
+    if (ctx.wb.version !== job.version || (!scope && !opts.allSheets && ctx.sheetId() !== job.sheetId)) {
+      // With the panel closed (Shift+F4 searching on its own), nothing is on screen to keep up to date.
+      if (open) refreshMatches();
+      else { collect(); flushWaiting(); }
+      return;
+    }
+    advance(job, SLICE);
+    if (job.search.done) {
+      settle(job);
+      publish(job);
+      flushWaiting();
+      return;
+    }
+    if (performance.now() - job.shown >= SHOW_EVERY) publish(job);
+    job.timer = setTimeout(() => proceed(job), 0);
+  }
+
+  /** Run what was waiting for every match, now that the search has found them all. */
+  function flushWaiting() {
+    if (running || !waiting) return;
+    const then = waiting;
+    waiting = null;
+    then(last?.found ?? []);
+  }
+
+  /** Run `then` with every match of the current search: now, or once a large workbook has been searched to the end. */
+  function afterSearch(then) {
+    waiting = null;
+    const found = collect();
+    if (running) { waiting = then; refreshStatus(); } else then(found);
+  }
+
+  /**
+   * Show the matches found so far, keeping the place in them. Until the user moves on from the match a search
+   * chose, it is chosen again from what is now in: a nearer match after the active cell may only just be found.
+   */
+  function publish(job) {
+    job.shown = performance.now();
+    if (!open) return;
+    const before = matches[current];
+    matches = job.search.matches();
+    const a = ctx.grid.active;
+    const on = before && before.sheetId === ctx.sheetId() && before.r === a.r && before.c === a.c;
+    if (job.pick && !job.moved && (!before || on) && matches.length) {
+      const i = firstFrom(job.pick);
+      if (matches[i] !== before) { show(i, { scroll: job.scroll }); return; }
+    }
+    const target = job.follow || before;
+    const at = target ? matches.findIndex((m) => m.sheetId === target.sheetId && m.r === target.r && m.c === target.c) : -1;
+    if (at >= 0) job.follow = null;
+    current = at >= 0 ? at : Math.min(Math.max(current, 0), matches.length - 1);
+    refreshStatus();
+    paint(current);
+  }
+
+  /** The first match at or after a cell, on that cell's sheet, or the first on that sheet when none follows it. */
+  function firstFrom({ sheetId, r, c }) {
+    const i = matches.findIndex((m) => m.sheetId === sheetId && (m.r > r || (m.r === r && m.c >= c)));
+    return i < 0 ? Math.max(0, matches.findIndex((m) => m.sheetId === sheetId)) : i;
+  }
+
+  /** The user went to another match, so a search still going on leaves the choice of match alone. */
+  const moved = () => { if (running) running.moved = true; };
 
   /** Highlight only the matches on the sheet in view. */
   function paint(i) {
@@ -204,6 +305,7 @@ export function createFindBar(ctx) {
   /** The notes a search carries: it ran out of time, or its pattern skips the longest cells. Null for none. */
   function notes() {
     const out = [];
+    if (running) out.push(t('findbar.note.stillSearching'));
     if (stopped) out.push(opts.regex ? t('findbar.note.stoppedSlow') : t('findbar.note.stoppedTooMuch'));
     const limit = opts.regex && query.value && !patternProblem() ? patternSubjectLimit(query.value, { wholeCell: opts.wholeCell }) : Infinity;
     if (limit !== Infinity) out.push(t('findbar.note.cellsSkipped', { limit }));
@@ -251,21 +353,20 @@ export function createFindBar(ctx) {
     if (!open) return;
     clearTimeout(debounce);
     debounce = null;
+    waiting = null;
     if (!keepIndex) homeSheet = ctx.sheetId();
     matches = collect();
+    // Start from the match at or after the active cell on this sheet; a search still going on may find a nearer one.
+    const anchor = { sheetId: ctx.sheetId(), r: ctx.grid.active.r, c: ctx.grid.active.c };
+    const pick = !keepIndex || current < 0 || current >= matches.length;
+    if (running && pick) { running.pick = anchor; running.scroll = !keepIndex; }
     if (!matches.length) {
       current = -1;
       refreshStatus();
       ctx.grid.setHighlights([], -1);
       return;
     }
-    if (!keepIndex || current < 0 || current >= matches.length) {
-      // Start from the match at or after the active cell on this sheet.
-      const a = ctx.grid.active;
-      const here = ctx.sheetId();
-      const idx = matches.findIndex((m) => m.sheetId === here && (m.r > a.r || (m.r === a.r && m.c >= a.c)));
-      current = idx < 0 ? Math.max(0, matches.findIndex((m) => m.sheetId === here)) : idx;
-    }
+    if (pick) current = firstFrom(anchor);
     show(current, { scroll: !keepIndex });
   }
 
@@ -286,7 +387,9 @@ export function createFindBar(ctx) {
   function step(direction) {
     // Enter or a navigation button can arrive before the typing delay ends.
     if (debounce !== null) { search(); return; }
-    if (!matches.length) { search(); return; }
+    // With nothing found yet by a search still going on, there is nowhere to go, and starting it over would not help.
+    if (!matches.length) { if (!running) search(); return; }
+    moved();
     if (opts.allSheets) {
       // Matches are already in sheet-then-reading order: walk the list.
       const here = ctx.sheetId();
@@ -311,6 +414,7 @@ export function createFindBar(ctx) {
     const fresh = matches.findIndex(m => m.sheetId === target.sheetId && m.r === target.r && m.c === target.c);
     const sheet = ctx.wb.sheet(target.sheetId);
     if (fresh < 0 || !sheet || sheet.hidden) return;
+    moved();
     show(fresh);
   }
 
@@ -333,7 +437,9 @@ export function createFindBar(ctx) {
 
   function replaceOne() {
     if (debounce !== null) search();
+    if (!matches.length && running) return;
     if (!matches.length || current < 0) { search(); if (!matches.length) return; }
+    moved();
     // Replace rewrites the match the active cell is on, as Excel's does. With the active cell moved off it (a click
     // on the sheet), it finds the next match from there first, rather than rewriting a cell out of sight.
     const a = ctx.grid.active;
@@ -360,7 +466,11 @@ export function createFindBar(ctx) {
 
   function replaceAll() {
     if (!query.value || patternProblem()) return;
-    const all = collect();
+    // Every match is replaced, so on a large workbook the replacing waits for the search to reach the end.
+    afterSearch(replaceEvery);
+  }
+
+  function replaceEvery(all) {
     let n = 0;
     const skipped = [];
     ctx.wb.transaction(t('findbar.replaceAll'), () => {
@@ -380,7 +490,7 @@ export function createFindBar(ctx) {
     if (n) { text = alone ? t('findbar.replacedLeftAlone', { count: n, alone }) : t('findbar.replaced', { count: n }); icon = 'check'; }
     else if (only) { text = t(only.all); icon = only.icon; }
     else if (alone) text = t('findbar.nothingToReplaceLeftAlone', { alone });
-    // A search cut short by its time budget replaced what it found, which may not be every match.
+    // A search stopped by its limits replaced what it found, which may not be every match.
     if (stopped) text = t('findbar.stoppedEarly', { text });
     toast(text, { icon });
     search();
@@ -411,6 +521,8 @@ export function createFindBar(ctx) {
     if (!open) return;
     clearTimeout(debounce);
     debounce = null;
+    cancelRun();
+    waiting = null;
     open = false;
     root.hidden = true;
     root.classList.remove('find-bottom');
@@ -444,10 +556,14 @@ export function createFindBar(ctx) {
   /** The list on screen is out of date: collect it again, keeping the place in it where that still exists. */
   function refreshMatches(since = null) {
     const before = matches.length;
+    const was = matches[current];
     matches = collect(since);
     if (matches.length !== before || current >= matches.length) current = Math.min(Math.max(current, 0), matches.length - 1);
+    // A search that goes on finds the match the user was on later, and moves the place back to it then.
+    if (running && was) running.follow = was;
     refreshStatus();
     paint(current);
+    flushWaiting();
   }
 
   // Keep matches fresh while the sheet changes underneath the panel.
@@ -481,6 +597,8 @@ export function createFindBar(ctx) {
   function destroy() {
     open = false;
     clearTimeout(debounce);
+    cancelRun();
+    waiting = null;
     resizeObserver?.disconnect();
     ctx.wb.removeEventListener('change', onWorkbookChange);
     unsubscribe();
@@ -498,7 +616,11 @@ export function createFindBar(ctx) {
     const sheetId = ctx.sheetId();
     scope = null;
     homeSheet = sheetId; // every sheet in order from this one
-    const found = patternProblem() ? [] : collect();
+    // The next match may be past what a first slice of a large workbook reaches, so the search goes to the end.
+    if (patternProblem()) nextFrom(sheetId, []);
+    else afterSearch((found) => nextFrom(sheetId, found));
+  }
+  function nextFrom(sheetId, found) {
     if (!found.length) { toast(t('findbar.noMatchesFor', { query: query.value }), { icon: 'info' }); return; }
     const a = ctx.grid.active;
     const after = found.findIndex((m) => m.sheetId !== sheetId || m.r > a.r || (m.r === a.r && m.c > a.c));

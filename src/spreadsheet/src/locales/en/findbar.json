@@ -38,6 +38,7 @@
   "noMatchesFor": "No matches for “{query}”",
   "note.cellsSkipped": "cells over {limit, number} characters skipped",
   "note.join": "{list}; {note}",
+  "note.stillSearching": "still searching",
   "note.stoppedSlow": "search stopped: the pattern is slow",
   "note.stoppedTooMuch": "search stopped: too much to search",
   "nothingToReplace": "Nothing to replace",
