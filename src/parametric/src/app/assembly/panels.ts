@@ -566,6 +566,17 @@ export class MatePanel extends PropertyPanel {
     return pa && pb ? relativePlacement(pa, pb) : this.relNow(a, b);
   }
 
+  /** Where b sits in a's frame once b's axis passes through a universal joint's point (as relNow where it does not solve). */
+  private relAtJoint(uj: Mate, a: MateRef, b: MateRef): Placement | undefined {
+    const e = this.mode.entity(a);
+    if (typeof e === 'string' || !('comp' in a) || (e.geo.kind !== 'axis' && e.geo.kind !== 'line')) return this.relNow(a, b);
+    let v: number;
+    try { v = this.mode.mateValue(uj); } catch { return this.relNow(a, b); }
+    // The joint point on a, and b's axis through it (a coincident mate standing in for the joint).
+    const point = add(e.geo.p, scale(normalize(e.geo.d), v));
+    return this.relSolved({ ...uj, type: 'coincident', a: { comp: a.comp, point }, aligned: true, by: undefined, value: undefined }, a, b);
+  }
+
   /** The mate as it would be added. */
   private mate(): Mate | null {
     if (!this.type) return null;
@@ -608,8 +619,12 @@ export class MatePanel extends PropertyPanel {
     }
     if (t === 'universal') {
       if (this.refs.length !== 2) return null;
-      const rel = kept(r0, r1);
-      return { ...base, a: r0, b: r1, ...(rel ? { rel } : {}), ...(this.by === 'point' ? { by: 'point', value: this.value } : {}) };
+      const uj: Mate = { ...base, a: r0, b: r1, ...(this.by === 'point' ? { by: 'point', value: this.value } : {}) };
+      const keep = this.existing?.type === t && this.existing.rel && JSON.stringify([this.existing.a, this.existing.b]) === JSON.stringify([r0, r1]);
+      // The yokes are taken from where the shafts are once the joint point holds (it may tilt
+      // the second shaft), not from before: from there, adding the joint turned the shafts.
+      const rel = keep ? this.existing!.rel : this.by === 'point' ? this.relAtJoint(uj, r0, r1) : this.relNow(r0, r1);
+      return { ...uj, ...(rel ? { rel } : {}) };
     }
     const counts = MECH_BOXES[t].map((x) => x.count);
     if (this.refs.length !== counts[0] || (counts[1] && this.refs2.length !== counts[1])) return null;

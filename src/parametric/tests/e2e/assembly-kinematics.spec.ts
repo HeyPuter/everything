@@ -1248,3 +1248,64 @@ test('interference over a motion reports a pair whose overlap could not be compu
   await expect(pm.getByRole('status').filter({ hasText: 'No interference in the frames checked' })).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test('a universal joint with a joint point takes its yokes where the point puts the shafts (adding it turned the input shaft 18°)', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = await openApp(page);
+  await newAssemblyWith(page, [['Plate', PLATE], ['Shaft', SHAFT]], ['Plate', 'Shaft', 'Shaft']);
+  await built(page, ['Plate<1>', 'Shaft<1>', 'Shaft<2>']);
+  await select(page, [{ comp: 'Shaft<1>', face: 'E1:side:k' }, { comp: 'Plate<1>', face: 'E1:side:h1' }]);
+  let pm = await openMate(page, 'hinge');
+  await pm.getByRole('group', { name: 'Coincident selections' }).click();
+  await pick(page, { comp: 'Plate<1>', face: 'E1:cap1' });
+  await pick(page, { comp: 'Shaft<1>', face: 'E1:cap0' });
+  await pm.getByRole('button', { name: 'OK' }).click();
+  // Shaft<2> pivots on a ball at C (its end), tilted.
+  await page.evaluate(() => {
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
+    const C = [40, 35, 60] as [number, number, number];
+    const s = Math.sin(0.45), c = Math.cos(0.45), k = Math.SQRT1_2;
+    m.commit('Ball', (d) => {
+      const plate = d.components.find((x) => x.name === 'Plate<1>')!, sh = d.components.find((x) => x.name === 'Shaft<2>')!;
+      sh.placement = { p: C, q: [k * s, k * s, 0, c] };
+      d.mates.push({ id: 'm900', name: 'Ball', type: 'coincident', a: { comp: plate.id, point: C }, b: { comp: sh.id, point: [0, 0, 0] }, aligned: true } as never);
+    });
+  });
+  const turn = () => page.evaluate(() => {
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
+    const q = (n: string) => m.solved.get(m.doc.components.find((c) => c.name === n)!.id)!.q;
+    const a = q('Shaft<1>');
+    return { a: (2 * Math.atan2(a[2], a[3]) * 180) / Math.PI, b: q('Shaft<2>') };
+  });
+  const before = await turn();
+  await select(page, [{ comp: 'Shaft<1>', face: 'E1:side:k' }, { comp: 'Shaft<2>', face: 'E1:side:k' }]);
+  pm = await openMate(page, 'universal');
+  await pm.getByRole('checkbox', { name: /Joint point/ }).check();
+  await pm.getByRole('textbox', { name: 'Joint point offset (along the first shaft)' }).fill('15');
+  await pm.getByRole('textbox', { name: 'Joint point offset (along the first shaft)' }).press('Enter');
+  await pm.getByRole('button', { name: 'OK' }).click();
+  const after = await turn();
+  await expect(page.locator('.statusbar')).toContainText('Under Defined (1 DOF)');
+  expect(Math.abs(after.a - before.a)).toBeLessThan(3);
+  const phase = await page.evaluate(() => {
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
+    const uj = m.doc.mates.find((x) => x.type === 'universal')!;
+    const rot = (q: number[], v: number[]) => { const [x, y, z, w] = q; const t = [2 * (y * v[2] - z * v[1]), 2 * (z * v[0] - x * v[2]), 2 * (x * v[1] - y * v[0])]; return [v[0] + w * t[0] + y * t[2] - z * t[1], v[1] + w * t[1] + z * t[0] - x * t[2], v[2] + w * t[2] + x * t[1] - y * t[0]]; };
+    const conj = (q: number[]) => [-q[0], -q[1], -q[2], q[3]];
+    const mul = (a: number[], b: number[]) => [a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1], a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0], a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3], a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2]];
+    const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    const cross = (a: number[], b: number[]) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const nrm = (a: number[]) => { const l = Math.hypot(a[0], a[1], a[2]); return a.map((x) => x / l); };
+    const Z = [0, 0, 1];
+    const bInA0 = rot(uj.rel!.q, Z);
+    const ya = nrm(bInA0.map((v, i) => v - Z[i] * dot(Z, bInA0)));
+    const ca = m.doc.components.find((c) => c.name === 'Shaft<1>')!.id, cb = m.doc.components.find((c) => c.name === 'Shaft<2>')!.id;
+    const qa = m.solved.get(ca)!.q, qb = m.solved.get(cb)!.q;
+    const bInA = rot(mul(conj(qa), qb), Z);
+    const n = nrm(cross(Z, bInA));
+    return (Math.asin(Math.abs(dot(ya, n))) * 180) / Math.PI;
+  });
+  // The first yoke lies in the plane of the two shafts where the joint holds (it was 64° out of it).
+  expect(phase).toBeLessThan(3);
+  expect(errors).toEqual([]);
+});
