@@ -28,7 +28,7 @@ import { hasExternal, resolveExternal } from '../sketch/external';
 import { solveSketch } from '../sketch/solver';
 import { measureDimension } from '../sketch/ops';
 import type {
-  BuildRequest, BuildResult, EdgeInfo, FaceInfo, FeaSurface, FeatureStatus, FlatPatternResult, MassProperties, MeasureResult, MeasureTarget, MeshData,
+  BuildRequest, BuildResult, EdgeInfo, FaceInfo, FeaFaceSurface, FeaSurface, FeatureStatus, FlatPatternResult, MassProperties, MeasureResult, MeasureTarget, MeshData,
   ProjectionRequest, ProjectionResult, WeldVolumes,
 } from './protocol';
 import { type WeldCtx, type WeldState, applyEndCap, applyGusset, applyStructuralMember, applyTrimExtend, applyWeldBead } from './weldments';
@@ -1829,7 +1829,10 @@ export class ModelBuilder {
       claimed.add(fi);
       for (let t = start; t < start + count; t += 3) triFace[t / 3] = fi;
     }
-    return { positions: m.positions, indices: m.indices, triFace, volume: volumeOf(st.body), faceNames: st.faces.map((f) => f.name) };
+    // The circular edges of each face (the axes of its surfaces of revolution).
+    const circles: EdgeDesc[][] = [];
+    for (const e of this.edgesOf(st)) if (e.desc.type === 'circle') for (const fi of e.faces) (circles[fi] ??= []).push(e.desc);
+    return { positions: m.positions, indices: m.indices, triFace, volume: volumeOf(st.body), faceNames: st.faces.map((f) => f.name), surfaces: st.faces.map((f, i) => feaFaceSurface(f.desc, circles[i] ?? [])) };
   }
 
   exportBrep(): string {
@@ -2221,3 +2224,17 @@ export function eigenSym3(m: number[]): { moments: Vec3; axes: [Vec3, Vec3, Vec3
   return { moments, axes };
 }
 
+
+/**
+ * A face's surface for the stress analysis (see FeaFaceSurface): a plane, a sphere or a surface of
+ * revolution (a cone, a torus or other, its axis read from a circular edge of the face: this build of
+ * OpenCascade cannot give a cone's or a torus's axis).
+ */
+function feaFaceSurface(d: SurfDesc, circles: EdgeDesc[]): FeaFaceSurface {
+  if (d.type === 'plane') return { kind: 'plane', n: d.d };
+  if (d.type === 'sphere') return { kind: 'sphere', c: d.p };
+  if (d.type === 'cylinder') return { kind: 'revolution', p: d.p, d: d.d, cylinder: true };
+  if (d.type !== 'cone' && d.type !== 'torus' && d.type !== 'revolution') return null;
+  const c = circles.find((e) => e.center && e.axis);
+  return c ? { kind: 'revolution', p: c.center!, d: c.axis!, cylinder: false } : null;
+}

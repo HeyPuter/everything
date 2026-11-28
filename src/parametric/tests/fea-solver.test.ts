@@ -17,11 +17,13 @@ import { addBodyForce, elementNodeStrains, elementStiffness } from '../src/fea/e
 import { fieldValues, meshView, solutionOf } from '../src/fea/results';
 import { type BlockMatrix, type Prolongator, galerkin, matvec } from '../src/fea/amg';
 import type { Feature, SkEntity } from '../src/model/types';
-import { circle, extrude, polygon, rect, req, sketch } from './helpers';
+import { circle, extrude, polygon, rect, req, revolve, sketch } from './helpers';
 
 beforeAll(async () => {
   setOc(await init());
 });
+
+const faces = (res: { faces: FaceInfo[] }) => res.faces;
 
 const STEEL = { E: 200000, nu: 0.3, density: 7.85e-9 };
 
@@ -170,6 +172,24 @@ describe('static analysis accuracy', () => {
     }
     expect(sol.summary.maxDisplacement.value).toBeCloseTo(Math.hypot(sigma * 100, STEEL.nu * sigma * 10, STEEL.nu * sigma * 10) / STEEL.E, 7);
     expect(sol.summary.maxVonMises.value).toBeCloseTo(sigma, 3);
+  }, 120000);
+
+  it('a roller on a cone, given the cone, leaves it free to turn about its axis', async () => {
+    // A frustum (radius 30 at the base, 15 at the top, 40 high) about Y, on a roller on its conical face.
+    const b = new ModelBuilder();
+    const res = await b.build(req([sketch('s1', polygon([[0, 0], [30, 0], [15, 40], [0, 40]])), revolve('f1', 's1', 360, { axis: { kind: 'base', axis: 'y' } })], { quality: 1 }));
+    expect(res.status.every((x) => x.ok)).toBe(true);
+    const fs = b.feaSurface(0.04);
+    const mesh = meshSolid(new SurfaceIndex(fs), { size: 3 });
+    const cone = res.faces.findIndex((f) => f.type === 'cone');
+    expect(fs.surfaces[cone]).toMatchObject({ kind: 'revolution', cylinder: false });
+    expect(Math.abs(fs.surfaces[cone]!.kind === 'revolution' ? fs.surfaces[cone]!.d[1] : 0)).toBeCloseTo(1, 9);
+    const roller = { kind: 'roller' as const, faces: [cone], surfaces: [fs.surfaces[cone]] };
+    expect(rigidMotions(mesh, constraintsOf(mesh, [roller]))).toEqual(['free to turn about Y']);
+    // Pressed into its seat it is solved, the turn held by weak springs; a twist would be unstable.
+    const r = solveStatic(mesh, { ...STEEL, fixtures: [roller], loads: [{ kind: 'pressure', faces: [planar(faces(res), [0, 1, 0])], value: 1 }] });
+    expect(r.warnings.join(' ')).toMatch(/free to turn about Y/);
+    expect(r.reactions[0][1] / (Math.PI * 15 ** 2)).toBeCloseTo(1, 2);
   }, 120000);
 
   it('plate with a hole in tension: stress concentration about 3', async () => {

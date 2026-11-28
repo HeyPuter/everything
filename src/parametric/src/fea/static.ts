@@ -9,13 +9,17 @@
 import { type Preconditioner, blockAt, blockJacobi, meshPattern, pcg, smoothedAggregation } from './amg';
 import { addBodyForce, elementNodeStrains, elementStiffness, integrateTriangle, lame, principal } from './elements';
 import type { TetMesh } from './mesher';
+import type { FeaFaceSurface } from '../kernel/protocol';
 
 export type Vec3 = [number, number, number];
 
 export type FixtureInput =
   | { kind: 'fixed'; faces: number[] }
-  /** No motion normal to the faces (each node: the mesh normal there). */
-  | { kind: 'roller'; faces: number[] }
+  /**
+   * No motion normal to the faces (each node: the surface normal there, from `surfaces` where given (one per
+   * face), else from the mesh).
+   */
+  | { kind: 'roller'; faces: number[]; surfaces?: FeaFaceSurface[] }
   /** A cylindrical face that may only turn about its axis (no radial or axial motion). */
   | { kind: 'hinge'; faces: number[]; axis: { p: Vec3; d: Vec3 } };
 
@@ -259,10 +263,20 @@ export function constraintsOf(mesh: TetMesh, fixtures: FixtureInput[], by?: Map<
         if (fn[0] * p.n[0] + fn[1] * p.n[1] + fn[2] * p.n[2] > l * (1 - 1e-9)) p.on += l;
       }
       for (const [face, p] of flat) if (!(p.on >= 0.95 * p.all)) flat.delete(face);
+      // The faces' surfaces where the part says what they are (else found from the mesh as far as it tells).
+      const unit = (d: Vec3): Vec3 => { const l = Math.hypot(d[0], d[1], d[2]) || 1; return [d[0] / l, d[1] / l, d[2] / l]; };
+      const cyl = new Map<number, { c: Vec3; a: Vec3 }>();
+      const sphere = new Map<number, Vec3>(), rev = new Map<number, { c: Vec3; a: Vec3 }>();
+      fx.surfaces?.forEach((sf, i) => {
+        const face = fx.faces[i];
+        if (!sf) return;
+        if (sf.kind === 'plane') flat.set(face, { n: unit(sf.n), on: 0, all: 0 });
+        else if (sf.kind === 'sphere') { flat.delete(face); sphere.set(face, sf.c); }
+        else { flat.delete(face); (sf.cylinder ? cyl : rev).set(face, { c: sf.p, a: unit(sf.d) }); }
+      });
       // A cylindrical face is held radially from its axis: the facets' normals lean along the axis and around
       // it, and would hold a shaft on a roller against sliding along and turning about its axis.
-      const cyl = new Map<number, { c: Vec3; a: Vec3 }>();
-      for (const face of faces) if (!flat.has(face)) { const c = cylinderOf(mesh, face); if (c) cyl.set(face, c); }
+      for (const face of faces) if (!flat.has(face) && !cyl.has(face) && !sphere.has(face) && !rev.has(face)) { const c = cylinderOf(mesh, face); if (c) cyl.set(face, c); }
       const radial = (v: number, { c, a }: { c: Vec3; a: Vec3 }): Vec3 => {
         const r: Vec3 = [X[v * 3] - c[0], X[v * 3 + 1] - c[1], X[v * 3 + 2] - c[2]];
         const t = r[0] * a[0] + r[1] * a[1] + r[2] * a[2];
@@ -273,10 +287,11 @@ export function constraintsOf(mesh: TetMesh, fixtures: FixtureInput[], by?: Map<
         const face = mesh.triFace[f];
         if (!faces.has(face)) continue;
         const cf = cyl.get(face);
-        const fn = flat.get(face)?.n ?? (cf ? null : triNormal(f));
+        const fn = flat.get(face)?.n ?? (cf || sphere.has(face) ? null : triNormal(f));
         for (let q = 0; q < 6; q++) {
           const v = mesh.tris[f * 6 + q];
-          if (cf) { let byFace = nrm.get(v); if (!byFace) nrm.set(v, (byFace = new Map())); byFace.set(face, radial(v, cf)); continue; }
+          const sc = sphere.get(face);
+          if (cf || sc) { let byFace = nrm.get(v); if (!byFace) nrm.set(v, (byFace = new Map())); byFace.set(face, cf ? radial(v, cf) : [X[v * 3] - sc![0], X[v * 3 + 1] - sc![1], X[v * 3 + 2] - sc![2]]); continue; }
           let byFace = nrm.get(v);
           if (!byFace) nrm.set(v, (byFace = new Map()));
           let n = byFace.get(face);
@@ -288,7 +303,15 @@ export function constraintsOf(mesh: TetMesh, fixtures: FixtureInput[], by?: Map<
       // nearly tangent, as a fillet meets a flat face).
       for (const [v, byFace] of nrm) {
         const dirs: Vec3[] = [];
-        for (const n of byFace.values()) {
+        for (const [face, n] of byFace) {
+          // On a surface of revolution (a cone, a torus) the normal has no part around the axis: turning about
+          // the axis stays free however the facets lean.
+          const rf = rev.get(face);
+          if (rf) {
+            const r = radial(v, rf), t: Vec3 = [rf.a[1] * r[2] - rf.a[2] * r[1], rf.a[2] * r[0] - rf.a[0] * r[2], rf.a[0] * r[1] - rf.a[1] * r[0]];
+            const tl = Math.hypot(t[0], t[1], t[2]);
+            if (tl > 0) { const s = (n[0] * t[0] + n[1] * t[1] + n[2] * t[2]) / (tl * tl); n[0] -= s * t[0]; n[1] -= s * t[1]; n[2] -= s * t[2]; }
+          }
           const l = Math.hypot(n[0], n[1], n[2]);
           if (!(l > 0)) continue;
           const u: Vec3 = [n[0] / l, n[1] / l, n[2] / l];

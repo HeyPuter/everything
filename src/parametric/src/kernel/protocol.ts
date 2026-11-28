@@ -184,6 +184,12 @@ export interface ProjectionResult {
   cutGroups?: number[];
 }
 
+/**
+ * A face's surface where the stress analysis can use it (a roller holds it along the true normal): a
+ * plane's outward normal, a sphere's centre, the axis of a surface of revolution (`cylinder` for a cylinder).
+ */
+export type FeaFaceSurface = { kind: 'plane'; n: Vec3 } | { kind: 'sphere'; c: Vec3 } | { kind: 'revolution'; p: Vec3; d: Vec3; cylinder: boolean } | null;
+
 /** The solid's boundary triangulated for the stress analysis mesher (see ModelBuilder.feaSurface). */
 export interface FeaSurface {
   positions: Float32Array;
@@ -193,6 +199,8 @@ export interface FeaSurface {
   /** Exact volume of the solid (mm^3). */
   volume: number;
   faceNames: string[];
+  /** The surface of each face (by index, as triFace). */
+  surfaces: FeaFaceSurface[];
 }
 
 export type WorkerRequest =
