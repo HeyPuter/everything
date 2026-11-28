@@ -93,11 +93,14 @@ test('sets up a static study, runs it, reads the plot and saves it with the part
   const saveAs = page.getByRole('dialog', { name: 'Save As' });
   if (await saveAs.isVisible().catch(() => false)) await saveAs.getByRole('button', { name: 'Save' }).click();
   await expect(page).toHaveTitle(/Mounting Bracket - Parametric/);
-  const saved = await page.evaluate(async (url) => {
+  // The title is the sample's already: wait for the save itself (the part has a file, written with the edit).
+  const readSaved = () => page.evaluate(async (url) => {
     const { loadText } = await import(url);
     const a = (window as unknown as W).__parametric;
-    return JSON.parse(await loadText(a.location!));
+    return a.location ? JSON.parse(await loadText(a.location)) : null;
   }, '/src/platform/files.ts');
+  await expect.poll(async () => (await readSaved().catch(() => null))?.study?.loads?.[0]?.value ?? null).toBe(600);
+  const saved = await readSaved();
   expect(saved.study.fixtures).toHaveLength(1);
   expect(saved.study.loads[0]).toMatchObject({ type: 'force', value: 600 });
   expect(saved.material).toMatchObject({ name: 'Alloy Steel', E: 205000 });
