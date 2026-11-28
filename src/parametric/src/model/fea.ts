@@ -81,9 +81,9 @@ export function newStudy(id: Id): StaticStudy {
   return { id, name: 'Static Study', fixtures: [], loads: [], mesh: { fineness: 0.5 } };
 }
 
-/** Element size for a fineness, from the automatic size (no larger than the part's walls allow). */
-export function elementSizeFor(auto: number, max: number, fineness: number): number {
-  return Math.min(max, auto * 2 ** (1 - 2 * Math.max(0, Math.min(1, fineness))));
+/** Element size for a fineness, from the automatic size (no larger than the part's walls allow, nor smaller than min). */
+export function elementSizeFor(auto: number, max: number, fineness: number, min = 0): number {
+  return Math.max(min, Math.min(max, auto * 2 ** (1 - 2 * Math.max(0, Math.min(1, fineness)))));
 }
 
 // ---------- units ----------

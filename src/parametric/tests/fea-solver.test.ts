@@ -9,12 +9,14 @@ import { ModelBuilder } from '../src/kernel/build';
 import { setOc } from '../src/kernel/occ';
 import type { FaceInfo } from '../src/kernel/protocol';
 import { SurfaceIndex } from '../src/fea/surface';
-import { meshSolid } from '../src/fea/mesher';
+import { defaultElementSize, maxElementSize, meshSolid, meshWalls, minElementSize } from '../src/fea/mesher';
+import { elementSizeFor } from '../src/model/fea';
+import { newBaseFlange } from '../src/model/sheetmetal';
 import { type LoadInput, type StaticInput, StudyError, constraintsOf, loadVector, rigidMotions, solveStatic } from '../src/fea/static';
 import { addBodyForce, elementNodeStrains, elementStiffness } from '../src/fea/elements';
 import { fieldValues, meshView, solutionOf } from '../src/fea/results';
 import { type BlockMatrix, type Prolongator, galerkin, matvec } from '../src/fea/amg';
-import type { Feature } from '../src/model/types';
+import type { Feature, SkEntity } from '../src/model/types';
 import { circle, extrude, polygon, rect, req, sketch } from './helpers';
 
 beforeAll(async () => {
@@ -396,4 +398,51 @@ describe('10-node tetrahedron', () => {
     const total = loadVector(mesh, { ...STEEL, fixtures: [], loads: [{ kind: 'pressure', faces: all, value: 1 }] }).applied;
     expect(Math.hypot(...total)).toBeLessThan(1e-9 * areas[0]);
   }, 60000);
+});
+
+describe('thin walls at the default mesh', () => {
+  /** The part meshed at the mesh panel's default setting, as the Analysis workspace does. */
+  async function defaultMesh(features: Feature[]) {
+    const b = new ModelBuilder();
+    const res = await b.build(req(features, { quality: 1 }));
+    expect(res.status.every((s) => s.ok)).toBe(true);
+    const bb = res.bbox!;
+    const diag = Math.hypot(bb.max[0] - bb.min[0], bb.max[1] - bb.min[1], bb.max[2] - bb.min[2]);
+    const fs = b.feaSurface(diag * 3e-4), surf = new SurfaceIndex(fs);
+    const area = surf.faceAreas().reduce((a, c) => a + c, 0);
+    const auto = defaultElementSize(fs.volume, area, diag), max = maxElementSize(fs.volume, area, diag), min = minElementSize(fs.volume, area, diag);
+    return { mesh: meshWalls(surf, { size: elementSizeFor(auto, max, 0.5, min), min }), faces: res.faces };
+  }
+  const tipMove = (nodes: Float64Array, U: Float64Array, at: (x: number, y: number, z: number) => boolean, k: number) => {
+    let u = 0;
+    for (let v = 0; v < nodes.length / 3; v++) if (at(nodes[v * 3], nodes[v * 3 + 1], nodes[v * 3 + 2]) && Math.abs(U[v * 3 + k]) > Math.abs(u)) u = U[v * 3 + k];
+    return u;
+  };
+
+  it('a 1.5 mm plate bends as a cantilever (beam theory)', async () => {
+    const { mesh, faces } = await defaultMesh([sketch('s1', rect(0, 0, 100, 50)), extrude('f1', 's1', 1.5)]);
+    const F = 10, I = (50 * 1.5 ** 3) / 12;
+    const r = solveStatic(mesh, { ...STEEL, fixtures: [{ kind: 'fixed', faces: [planar(faces, [-1, 0, 0])] }], loads: [{ kind: 'force', faces: [planar(faces, [1, 0, 0])], total: F, dir: [0, 0, -1] }] });
+    const w = -tipMove(mesh.nodes, r.U, (x) => x > 99.9, 2), theory = (F * 100 ** 3) / (3 * STEEL.E * I);
+    // A wide plate is a little stiffer than a beam (1 - nu^2 = 0.91 for a very wide one).
+    expect(w / theory).toBeGreaterThan(0.9);
+    expect(w / theory).toBeLessThan(1.01);
+  }, 120000);
+
+  it('a sheet metal L bracket (1.5 mm, bent) bends as two cantilevers', async () => {
+    const chain: SkEntity[] = [[0, 0], [80, 0], [80, 50]].map(([x, y], i) => ({ id: `p${i}`, t: 'point' as const, x, y }));
+    chain.push({ id: 'l0', t: 'line', a: 'p0', b: 'p1' }, { id: 'l1', t: 'line', a: 'p1', b: 'p2' });
+    const flange = newBaseFlange('B1', 'B1', 'S1', 1.5, 40);
+    flange.sm.radius = 1.5;
+    const { mesh, faces } = await defaultMesh([sketch('S1', chain), flange as unknown as Feature]);
+    const end = faces.findIndex((f) => f.type === 'plane' && f.normal && f.normal[0] < -0.99 && f.center[0] < 1e-6);
+    const top = faces.findIndex((f) => f.type === 'plane' && f.normal && f.normal[1] > 0.99 && f.center[1] > 49);
+    const F = 10, EI = STEEL.E * ((40 * 1.5 ** 3) / 12), L1 = 80 - 0.75, L2 = 50 - 0.75;
+    const r = solveStatic(mesh, { ...STEEL, fixtures: [{ kind: 'fixed', faces: [end] }], loads: [{ kind: 'force', faces: [top], total: F, dir: [-1, 0, 0] }] });
+    // The upright leg as a cantilever, turned by the base leg bending under F L2.
+    const theory = (F * L2 ** 3) / (3 * EI) + (F * L2 * L1 * L2) / EI;
+    const u = -tipMove(mesh.nodes, r.U, (_x, y) => y > 49.9, 0);
+    expect(u / theory).toBeGreaterThan(0.9);
+    expect(u / theory).toBeLessThan(1.02);
+  }, 120000);
 });

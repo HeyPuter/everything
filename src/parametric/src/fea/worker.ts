@@ -3,7 +3,7 @@
 // interface. It keeps the last mesh, so a study changed without changing the
 // part or the mesh size is solved again without meshing.
 
-import { MeshError, type TetMesh, meshSolid } from './mesher';
+import { MeshError, type TetMesh, meshWalls } from './mesher';
 import { type StaticInput, StudyError, solveStatic } from './static';
 import { SurfaceIndex, type FeaSurfaceData } from './surface';
 import { type FeaMeshInfo, type FeaSolution, meshView, solutionOf } from './results';
@@ -11,7 +11,8 @@ import { type FeaMeshInfo, type FeaSolution, meshView, solutionOf } from './resu
 declare const self: DedicatedWorkerGlobalScope;
 
 export type FeaWorkerRequest =
-  | { id: number; type: 'mesh'; surface: FeaSurfaceData; size: number }
+  /** min: the smallest element size to go down to where the walls are thinner than size. */
+  | { id: number; type: 'mesh'; surface: FeaSurfaceData; size: number; min?: number }
   | { id: number; type: 'solve'; input: StaticInput };
 
 export type FeaWorkerResponse =
@@ -33,7 +34,7 @@ self.onmessage = (ev: MessageEvent<FeaWorkerRequest>) => {
     if (msg.type === 'mesh') {
       mesh = null;
       const surf = new SurfaceIndex(msg.surface);
-      mesh = meshSolid(surf, { size: msg.size, progress });
+      mesh = meshWalls(surf, { size: msg.size, min: msg.min ?? msg.size, progress });
       const v = meshView(mesh);
       viewMap = v.map;
       const info: FeaMeshInfo = v.info;

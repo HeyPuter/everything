@@ -72,7 +72,12 @@ const ALPHA_SHORT = 0.41189;
 /** Edges of a 10-node tetrahedron (corner pairs), in midside node order. */
 export const TET_EDGES: [number, number][] = [[0, 1], [1, 2], [2, 0], [0, 3], [1, 3], [2, 3]];
 
-export class MeshError extends Error {}
+export class MeshError extends Error {
+  /** thin: the elements were too large for the part's walls (a finer mesh may work). */
+  constructor(message: string, readonly thin = false) {
+    super(message);
+  }
+}
 
 export function tetVolume(P: ArrayLike<number>, a: number, b: number, c: number, d: number): number {
   const ax = P[a * 3], ay = P[a * 3 + 1], az = P[a * 3 + 2];
@@ -106,13 +111,22 @@ function dihedrals(P: ArrayLike<number>, n: number[]): number[] {
   return out;
 }
 
+/**
+ * Unknowns a part may be solved with: about 2 GB at the peak in the browser's worker and 20 s (measured:
+ * 961k unknowns, 2.4 GB, 21 s; 2.1M took 4.3 GB). Finer meshes are not offered.
+ */
+export const MAX_DOFS = 1_000_000;
+
 /** Default element size for a part: fine enough for its walls, bounded so the problem stays solvable in a browser. */
 export function defaultElementSize(volume: number, area: number, diag: number): number {
   // 2V/A is the thickness of a plate (and a third of a cube's side).
   const wall = area > 0 ? (2 * volume) / area : diag / 10;
   const h = Math.min(diag / 25, wall / 1.5);
-  // About 66 degrees of freedom per h^3 of the quadratic mesh (measured); keep the default below about 150k.
-  const floor = Math.cbrt(Math.max(volume, 1e-9) / 2300);
+  // Keep the default near 150k unknowns.
+  let floor = Math.cbrt(Math.max(volume, 1e-9) / 2300);
+  // Thin walls (a plate, sheet metal): a solid mesh needs elements no thicker than the walls, as many as that
+  // takes (up to the most a browser can solve).
+  if (floor > wall) floor = Math.max(wall, sizeForDofs(volume, area, MAX_DOFS));
   return Math.max(h, floor, diag / 400);
 }
 
@@ -122,9 +136,42 @@ export function maxElementSize(volume: number, area: number, diag: number): numb
   return Math.max(wall, defaultElementSize(volume, area, diag));
 }
 
-/** Estimated degrees of freedom of a mesh of the given element size. */
-export function estimateDofs(volume: number, size: number): number {
-  return Math.round((66 * volume) / size ** 3);
+/** Smallest element size offered: no more than about MAX_DOFS unknowns (nor larger than the default). */
+export function minElementSize(volume: number, area: number, diag: number): number {
+  return Math.min(defaultElementSize(volume, area, diag), sizeForDofs(volume, area, MAX_DOFS));
+}
+
+/**
+ * Estimated degrees of freedom of a mesh of the given element size: a part of the volume and a part of the
+ * surface (the elements cut at the boundary), fitted to meshes of a cube, a bracket and a 1.5 mm plate (within 3%).
+ */
+export function estimateDofs(volume: number, size: number, area = 0): number {
+  return Math.round((47.3 * volume) / size ** 3 + (20.9 * area) / size ** 2);
+}
+
+/** Element size whose mesh has about `dofs` degrees of freedom (see estimateDofs). */
+export function sizeForDofs(volume: number, area: number, dofs: number): number {
+  const V = Math.max(volume, 1e-9), A = Math.max(area, 0);
+  let lo = Math.cbrt((47.3 * V) / dofs), hi = 2 * (lo + Math.sqrt((20.9 * A) / dofs));
+  for (let i = 0; i < 60; i++) { const m = (lo + hi) / 2; if (estimateDofs(V, m, A) > dofs) lo = m; else hi = m; }
+  return hi;
+}
+
+/**
+ * Meshes at the element size asked for or, where the part's walls are thinner than that, at the largest
+ * size down to `min` (in steps of 1.25) that meshes them; the mesh's stats give the size used.
+ */
+export function meshWalls(surf: SurfaceIndex, opts: MeshOptions & { min: number }): TetMesh {
+  for (let size = opts.size; ; size = Math.max(opts.min, size / 1.25)) {
+    try {
+      return meshSolid(surf, { ...opts, size });
+    } catch (e) {
+      if (!(e instanceof MeshError) || !e.thin) throw e;
+      if (size <= opts.min * 1.001) {
+        throw new MeshError(`${e.message.replace(/ Choose a finer mesh\.$/, '')} Elements small enough for those walls would make more unknowns than a browser can solve.`, true);
+      }
+    }
+  }
 }
 
 export function meshSolid(surf: SurfaceIndex, opts: MeshOptions): TetMesh {
@@ -392,7 +439,7 @@ export function meshSolid(surf: SurfaceIndex, opts: MeshOptions): TetMesh {
       }
     }
   }
-  if (!out.length) throw new MeshError('The mesh is empty: the elements are too large for this part. Choose a finer mesh.');
+  if (!out.length) throw new MeshError('The mesh is empty: the elements are too large for this part. Choose a finer mesh.', true);
 
   // ---- compact the nodes ----
   progress('Recovering edges', 0.55);
@@ -634,7 +681,7 @@ export function meshSolid(surf: SurfaceIndex, opts: MeshOptions): TetMesh {
   // Walls much thinner than the elements come out ragged, with whole layers missing: results on such a mesh mean nothing.
   const surfaceVolume = surf.volume();
   const off = volume / Math.abs(surfaceVolume) - 1;
-  if (!(Math.abs(off) <= 0.1)) throw new MeshError(`The mesh ${off < 0 ? 'misses' : 'adds'} ${Math.round(Math.abs(off) * 100)}% of the part's volume: some of its walls are thinner than the elements. Choose a finer mesh.`);
+  if (!(Math.abs(off) <= 0.1)) throw new MeshError(`The mesh ${off < 0 ? 'misses' : 'adds'} ${Math.round(Math.abs(off) * 100)}% of the part's volume: some of its walls are thinner than the elements. Choose a finer mesh.`, true);
   return {
     nodes: N, corners: nn, tets: T10, tris, triFace,
     stats: {

@@ -7,7 +7,7 @@ import { ModelBuilder } from '../src/kernel/build';
 import { setOc } from '../src/kernel/occ';
 import { EXAMPLES } from '../src/app/examples';
 import { SurfaceIndex } from '../src/fea/surface';
-import { MeshError, type TetMesh, defaultElementSize, maxElementSize, meshSolid, quadJacobian, tetVolume } from '../src/fea/mesher';
+import { MAX_DOFS, MeshError, type TetMesh, defaultElementSize, estimateDofs, maxElementSize, meshSolid, meshWalls, minElementSize, quadJacobian, tetVolume } from '../src/fea/mesher';
 import { elementSizeFor } from '../src/model/fea';
 import { integrateTriangle } from '../src/fea/elements';
 import type { Feature } from '../src/model/types';
@@ -76,15 +76,61 @@ describe('volume mesher', () => {
     expect(Array.from(b.triFace)).toEqual(Array.from(a.triFace));
   }, 60000);
 
-  it('refuses a plate thinner than the elements instead of meshing a fraction of it', async () => {
-    // 100 x 100 x 0.5: even the finest setting has elements larger than the thickness.
-    const { surf, fs } = await surfaceOf([sketch('s1', rect(0, 0, 100, 100)), extrude('f1', 's1', 0.5)]);
+  /** The sizes the mesh panel offers for a part: automatic, largest, smallest, and the one for a fineness. */
+  const sizesOf = (surf: SurfaceIndex, volume: number) => {
     const area = surf.faceAreas().reduce((a, b) => a + b, 0);
-    const auto = defaultElementSize(fs.volume, area, surf.diag), max = maxElementSize(fs.volume, area, surf.diag);
-    const fine = elementSizeFor(auto, max, 1);
-    expect(fine).toBeGreaterThan(0.5);
-    expect(() => meshSolid(surf, { size: fine })).toThrow(MeshError);
-    expect(() => meshSolid(surf, { size: fine })).toThrow(/misses \d+% of the part's volume/);
+    const auto = defaultElementSize(volume, area, surf.diag), max = maxElementSize(volume, area, surf.diag), min = minElementSize(volume, area, surf.diag);
+    return { area, auto, max, min, at: (fineness: number) => elementSizeFor(auto, max, fineness, min) };
+  };
+
+  it('meshes a 1.5 mm plate at the default size: elements as thick as the plate, the unknowns estimated', async () => {
+    // 200 x 100 x 1.5: the default for its volume alone (2.35 mm) left no mesh in the plate.
+    const { surf, fs } = await surfaceOf([sketch('s1', rect(0, 0, 200, 100)), extrude('f1', 's1', 1.5)]);
+    const z = sizesOf(surf, fs.volume);
+    const size = z.at(0.5);
+    expect(size).toBeLessThanOrEqual(1.5);
+    const m = meshSolid(surf, { size });
+    expect(Math.abs(m.stats.volume / fs.volume - 1)).toBeLessThan(1e-3);
+    expect(m.stats.pieces).toBe(1);
+    const est = estimateDofs(fs.volume, size, z.area);
+    expect(Math.abs(est / (m.stats.nodes * 3) - 1)).toBeLessThan(0.1);
+    // Fine stops at what a browser can solve.
+    expect(estimateDofs(fs.volume, z.at(1), z.area)).toBeLessThanOrEqual(MAX_DOFS * 1.001);
+  }, 60000);
+
+  it('keeps the sizes of compact parts, and caps their fine end at what a browser can solve', async () => {
+    const { surf, fs } = await surfaceOf([sketch('s1', rect(0, 0, 50, 50)), extrude('f1', 's1', 50)]);
+    const z = sizesOf(surf, fs.volume);
+    expect(z.at(0.5)).toBeCloseTo(Math.cbrt(125000 / 2300), 6);
+    expect(z.at(1)).toBeCloseTo(Math.cbrt(125000 / 2300) / 2, 6);
+    // Within 5% of the 960,960 unknowns of that mesh.
+    expect(Math.abs(estimateDofs(fs.volume, z.at(1), z.area) / 960960 - 1)).toBeLessThan(0.05);
+    // A plate with many holes: half the automatic size would be 1.2 million unknowns.
+    const big = await surfaceOf([sketch('s1', [...rect(0, 0, 200, 100), ...Array.from({ length: 40 }, (_, i) => circle(10 + (i % 10) * 20, 12.5 + Math.floor(i / 10) * 25, 4)).flat()]), extrude('f1', 's1', 5)]);
+    const zb = sizesOf(big.surf, big.fs.volume);
+    expect(zb.at(1)).toBeGreaterThan(zb.auto / 2);
+    expect(estimateDofs(big.fs.volume, zb.at(1), zb.area)).toBeCloseTo(MAX_DOFS, -3);
+  }, 60000);
+
+  it('meshes finer where walls are thinner than the size set (a thin plate with a thick boss)', async () => {
+    const { surf, fs } = await surfaceOf([sketch('s1', rect(0, 0, 200, 100)), extrude('f1', 's1', 1.5), sketch('s2', circle(100, 50, 12)), extrude('f2', 's2', 25)]);
+    const z = sizesOf(surf, fs.volume);
+    const size = z.at(0.5);
+    expect(() => meshSolid(surf, { size })).toThrow(/walls are thinner than the elements/);
+    const m = meshWalls(surf, { size, min: z.min });
+    expect(m.stats.size).toBeLessThan(size);
+    expect(m.stats.size).toBeGreaterThanOrEqual(z.min);
+    expect(Math.abs(m.stats.volume / fs.volume - 1)).toBeLessThan(1e-2);
+  }, 60000);
+
+  it('refuses a plate too thin for any mesh a browser can solve, instead of meshing a fraction of it', async () => {
+    // 100 x 100 x 0.5: elements as thin as that would make several million unknowns.
+    const { surf, fs } = await surfaceOf([sketch('s1', rect(0, 0, 100, 100)), extrude('f1', 's1', 0.5)]);
+    const z = sizesOf(surf, fs.volume);
+    expect(z.at(1)).toBeGreaterThan(0.5);
+    expect(() => meshSolid(surf, { size: z.at(1) })).toThrow(MeshError);
+    expect(() => meshSolid(surf, { size: z.at(1) })).toThrow(/misses \d+% of the part's volume/);
+    expect(() => meshWalls(surf, { size: z.at(0.5), min: z.min })).toThrow(/misses \d+% of the part's volume: some of its walls are thinner than the elements\. Elements small enough for those walls would make more unknowns than a browser can solve\./);
   }, 60000);
 
   for (const ex of EXAMPLES) {

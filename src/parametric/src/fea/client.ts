@@ -8,7 +8,7 @@ import type { FeaSurfaceData } from './surface';
 import type { FeaMeshInfo, FeaSolution } from './results';
 import type { FeaWorkerRequest, FeaWorkerResponse } from './worker';
 
-type Payload = { type: 'mesh'; surface: FeaSurfaceData; size: number } | { type: 'solve'; input: StaticInput };
+type Payload = { type: 'mesh'; surface: FeaSurfaceData; size: number; min?: number } | { type: 'solve'; input: StaticInput };
 
 interface Pending {
   resolve: (v: unknown) => void;
@@ -72,10 +72,13 @@ export class FeaClient {
     });
   }
 
-  /** Meshes the surface in the worker; its arrays are moved there (they are empty here afterwards). */
-  async mesh(surface: FeaSurfaceData, size: number, progress?: (stage: string, v: number) => void): Promise<FeaMeshInfo> {
+  /**
+   * Meshes the surface in the worker, finer down to `min` where its walls need it (the stats give the size
+   * used); its arrays are moved there (they are empty here afterwards).
+   */
+  async mesh(surface: FeaSurfaceData, size: number, progress?: (stage: string, v: number) => void, min = size): Promise<FeaMeshInfo> {
     this.meshed = false;
-    const info = await this.send<FeaMeshInfo>({ type: 'mesh', surface, size }, progress, [surface.positions.buffer, surface.indices.buffer, surface.triFace.buffer] as ArrayBuffer[]);
+    const info = await this.send<FeaMeshInfo>({ type: 'mesh', surface, size, min }, progress, [surface.positions.buffer, surface.indices.buffer, surface.triFace.buffer] as ArrayBuffer[]);
     this.meshed = true;
     return info;
   }
