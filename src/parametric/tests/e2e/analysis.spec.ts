@@ -505,6 +505,29 @@ test('clicking Results in the design tree shows the results panel without starti
   expect(errors).toEqual([]);
 });
 
+test('Run Again from the results panel shows the run, with Cancel', async ({ page }) => {
+  test.setTimeout(240_000);
+  const errors = await openApp(page);
+  await bracketStudy(page);
+  await page.locator('[data-cmd="fea:run"]').click();
+  await expect(page.locator('.fea-summary')).toBeVisible({ timeout: 120_000 });
+  // A finer mesh (a longer run), run again from the open results panel.
+  await page.evaluate(() => (window as unknown as W).__parametric.store.change('Finer', (d) => { d.study!.mesh.fineness = 0.8; }));
+  await page.getByRole('button', { name: 'Run Again' }).click();
+  const bar = page.getByRole('progressbar', { name: 'Analysis progress' });
+  await expect(bar).toBeVisible();
+  await expect(page.locator('.fea-stage')).not.toBeEmpty();
+  await page.locator('.pm-content').getByRole('button', { name: 'Cancel' }).click();
+  await expect(bar).toHaveCount(0);
+  await expect(page.locator('.statusbar .msg')).toHaveText('Analysis cancelled');
+  // And from Run on the ribbon, with the (out of date) results still shown.
+  await page.locator('[data-cmd="fea:run"]').click();
+  await expect(bar).toBeVisible();
+  await page.locator('.pm-content').getByRole('button', { name: 'Cancel' }).click();
+  await expect(bar).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test('a 1.5 mm plate meshes and solves at the default size; Fine stops at what a browser can solve', async ({ page }) => {
   test.setTimeout(240_000);
   const errors = await openApp(page);
