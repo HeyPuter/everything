@@ -8,11 +8,11 @@ import { type Vec3, add, normalize, qAxisAngle, qMul, scale } from '../../math/v
 import { allocateId, newDocument, parseDocument, serializeDocument } from '../../model/document';
 import { defaultName } from '../../model/features';
 import { BASE_PLANE_NAMES } from '../../model/planes';
-import type { Id, Param, PartDocument } from '../../model/types';
+import type { FaceRef, Id, Param, PartDocument } from '../../model/types';
 import { UNIT_SYSTEMS } from '../../model/units';
 import {
-  type AssemblyDocument, type ExplodeStep, type Mate, type MateRef, type MateType, type PartSource, MATE_LABELS, assemblyBom, bomCsv, instanceName,
-  isAssembly, newPartBlobId, nextAsmId, nextPartColor, parseAnyDocument,
+  type AssemblyDocument, type ExplodeStep, type Mate, type MateRef, type MateType, type MechanicalMateType, type PartSource, type Placement, MATE_LABELS, MECHANICAL_MATES, assemblyBom, bomCsv, instanceName,
+  isAssembly, isMechanical, newPartBlobId, nextAsmId, nextPartColor, parseAnyDocument,
 } from '../../model/assembly';
 import { type Geo, fittingMates, initialMateSettings, mateProblem, placeGeo, relativePlacement } from '../../assembly/solver';
 import {
@@ -25,7 +25,7 @@ import { icon } from '../../ui/icons';
 import { showDialog, toast } from '../../ui/overlay';
 import type { App } from '../app';
 import { formatGroup } from '../dialogs';
-import { type SelBoxItem, PropertyPanel, SelectionBox, checkbox, numberField, section, segmented, selectField } from '../pm';
+import { type PickFilter, type SelBoxItem, PropertyPanel, SelectionBox, checkbox, numberField, section, segmented, selectField } from '../pm';
 import type { SelItem } from '../selection';
 import type { AssemblyMode } from './mode';
 
@@ -184,32 +184,80 @@ export function insertComponent(mode: AssemblyMode, picked: PickedPart) {
 
 // ---------- Mate ----------
 
-const MATE_TYPES: MateType[] = ['coincident', 'parallel', 'perpendicular', 'distance', 'angle', 'concentric', 'tangent', 'lock'];
+const STANDARD_MATES: MateType[] = ['coincident', 'parallel', 'perpendicular', 'distance', 'angle', 'concentric', 'tangent', 'lock'];
+
+/** The selection boxes of a mechanical mate: their labels, what each takes, and how many entities. */
+const MECH_BOXES: Record<MechanicalMateType, { label: string; placeholder: string; count: number; filter: PickFilter }[]> = {
+  hinge: [
+    { label: 'Concentric selections', placeholder: 'Select the pin and its hole (round faces or edges)', count: 2, filter: { face: true, edge: true } },
+    { label: 'Coincident selections', placeholder: 'Select two planar faces that touch', count: 2, filter: { face: true, plane: true } },
+  ],
+  gear: [{ label: 'Gears', placeholder: 'Select a round face or edge of each gear', count: 2, filter: { face: true, edge: true } }],
+  rackPinion: [{ label: 'Rack and pinion', placeholder: 'Select a straight edge of the rack and a round face or edge of the pinion', count: 2, filter: { face: true, edge: true } }],
+  screw: [{ label: 'Screw selections', placeholder: 'Select a round face or edge of the screw and of the nut', count: 2, filter: { face: true, edge: true } }],
+  width: [
+    { label: 'Width selections', placeholder: 'Select the two faces of the groove', count: 2, filter: { face: true, plane: true } },
+    { label: 'Tab selections', placeholder: 'Select the two faces of the tab', count: 2, filter: { face: true } },
+  ],
+  slot: [
+    { label: 'Slot ends', placeholder: 'Select the two round ends of the slot', count: 2, filter: { face: true, edge: true } },
+    { label: 'Pin', placeholder: 'Select the pin (a round face or edge)', count: 1, filter: { face: true, edge: true } },
+  ],
+  slider: [
+    { label: 'First component', placeholder: 'Select a straight edge or axis, or two planar faces, of one component', count: 2, filter: { face: true, edge: true, plane: true } },
+    { label: 'Second component', placeholder: 'Select the same on the component that slides', count: 2, filter: { face: true, edge: true } },
+  ],
+  cam: [
+    { label: 'Cam faces', placeholder: 'Select the faces around the cam (its profile)', count: 500, filter: { face: true } },
+    { label: 'Follower', placeholder: 'Select the follower: a vertex, a roller (round face or edge) or a flat face', count: 1, filter: { face: true, edge: true, vertex: true } },
+  ],
+  universal: [{ label: 'Shafts', placeholder: 'Select a round face or edge of each shaft (the input first)', count: 2, filter: { face: true, edge: true } }],
+};
 
 export class MatePanel extends PropertyPanel {
   title = 'Mate';
   icon = 'mate';
   private box!: SelectionBox;
   private refs: MateRef[] = [];
+  /** The second selection box of hinge, width and slot mates. */
+  private refs2: MateRef[] = [];
   private type: MateType | null = null;
   private aligned = true;
+  private aligned2 = false;
   private flip = false;
   private value: Param = 10;
+  private value2: Param = 20;
+  private limitOn = false;
+  private min: Param = 0;
+  private max: Param = 10;
+  private by: 'ratio' | 'revolution' | 'point' | null = null;
+  private reverse = false;
   private auto = true;
   private result = h('div', { class: 'pm-msg', role: 'status' });
 
   constructor(private mode: AssemblyMode, private existing: Mate | null = null) {
     super();
-    this.helpText = 'Select two faces, edges or planes of different components (or of a component and the assembly). Mates keep them together as you move things.';
+    this.helpText = 'Select two faces, edges or planes of different components (or of a component and the assembly). Mates keep them together as you move things. Mechanical mates (hinge, slider, gear, rack and pinion, screw, width, slot, cam, universal joint) are in the list of mate types.';
     if (existing) {
       this.editingId = existing.id;
-      this.refs = [existing.a, existing.b];
       this.type = existing.type;
       this.aligned = existing.aligned;
+      this.aligned2 = !!existing.aligned2;
       this.flip = !!existing.flip;
       this.value = existing.value ?? (existing.type === 'angle' ? 90 : 10);
+      this.value2 = existing.value2 ?? 20;
+      this.limitOn = !!existing.limit;
+      if (existing.limit) { this.min = existing.limit.min; this.max = existing.limit.max; }
+      this.by = existing.by ?? null;
+      this.reverse = !!existing.reverse;
       this.auto = false;
       this.title = `Mate: ${existing.name}`;
+      const t = existing.type;
+      if (t === 'width' || t === 'slot') { this.refs = [existing.a, existing.a2!]; this.refs2 = [existing.b, ...(existing.b2 ? [existing.b2] : [])]; }
+      else if (t === 'slider') { this.refs = [existing.a, ...(existing.a2 ? [existing.a2] : [])]; this.refs2 = [existing.b, ...(existing.b2 ? [existing.b2] : [])]; }
+      else if (t === 'cam') { this.refs = [existing.a, ...(existing.chain ?? []).map((face) => ({ comp: (existing.a as { comp: Id }).comp, face }))]; this.refs2 = [existing.b]; }
+      else if (t === 'hinge') { this.refs = [existing.a, existing.b]; this.refs2 = [existing.a2!, existing.b2!]; }
+      else this.refs = [existing.a, existing.b];
     } else {
       const pre = mode.app.selection.items.map((it) => mode.refOf(it)).filter((r): r is MateRef => !!r).slice(0, 2);
       if (pre.length) { this.refs = pre; this.pickDefaults(); }
@@ -228,11 +276,18 @@ export class MatePanel extends PropertyPanel {
     const c = this.mode.component(r.comp)?.name ?? '?';
     if ('face' in r) return `Face (${r.face.sig.type}) of ${c}`;
     if ('edge' in r) return `Edge (${r.edge.sig.type}) of ${c}`;
+    if ('point' in r) return `Vertex of ${c}`;
     return c;
   }
 
-  /** The type, alignment, side and value that fit the two entities where they are. */
+  private get mech(): MechanicalMateType | null {
+    return this.type && isMechanical(this.type) ? this.type : null;
+  }
+
+  /** The type, alignment, side and values that fit the entities where they are. */
   private pickDefaults() {
+    const mech = this.mech;
+    if (mech) { this.mechDefaults(mech); return; }
     if (this.refs.length < 2) return;
     const [a, b] = this.refs.map((r) => this.geo(r));
     if (!a || !b) return;
@@ -243,90 +298,365 @@ export class MatePanel extends PropertyPanel {
     this.flip = st.flip;
     if (this.type === 'distance') this.value = Math.round(st.value * 1000) / 1000;
     if (this.type === 'angle') this.value = Math.round(st.value * 100) / 100;
+    if (this.limitOn && typeof this.value === 'number') this.limitAround(this.value);
+  }
+
+  /** Limits around the value a mate has where its entities are. */
+  private limitAround(v: number) {
+    if (this.type === 'angle') { this.min = Math.max(0, Math.round(v - 30)); this.max = Math.min(180, Math.round(v + 30)); }
+    else if (this.type === 'hinge') { this.min = -45; this.max = 45; }
+    else if (this.type === 'slider') { this.min = -25; this.max = 25; }
+    else { this.min = Math.max(0, Math.round((v - 10) * 1000) / 1000); this.max = Math.round((v + 10) * 1000) / 1000; }
+  }
+
+  private mechDefaults(t: MechanicalMateType) {
+    const g = this.refs.map((r) => this.geo(r));
+    const round = (x: Geo | null | undefined) => (x && x.kind === 'axis' && x.r > 0 ? Math.round(2 * x.r * 1000) / 1000 : null);
+    if (g.length === 2 && g[0] && g[1]) {
+      if (t === 'hinge' || t === 'screw') this.aligned = initialMateSettings('concentric', g[0], g[1]).aligned;
+      if (t === 'gear' && this.by !== 'ratio') { this.value = round(g[0]) ?? 20; this.value2 = round(g[1]) ?? 20; }
+      if (t === 'rackPinion') {
+        // The pinion first: the round one.
+        if (g[0].kind === 'line' && g[1].kind === 'axis') this.refs = [this.refs[1], this.refs[0]];
+        if (this.by !== 'revolution') this.value = round(this.geo(this.refs[0])) ?? 20;
+      }
+    }
+    if (t === 'hinge' && this.refs2.length === 2) {
+      const [a2, b2] = this.hingeFaces();
+      const ga = a2 && this.geo(a2), gb = b2 && this.geo(b2);
+      if (ga && gb) this.aligned2 = initialMateSettings('coincident', ga, gb).aligned;
+    }
+    if (t === 'screw' && typeof this.value === 'number' && this.value === 10 && !this.existing) this.value = 1;
+    if (t === 'slider') {
+      // Each pair's alignment as the entities are now (the first entity of each component, then the second).
+      const al = (x?: MateRef, y?: MateRef) => { const gx = x && this.geo(x), gy = y && this.geo(y); return gx && gy ? initialMateSettings('coincident', gx, gy).aligned : null; };
+      this.aligned = al(this.refs[0], this.refs2[0]) ?? this.aligned;
+      this.aligned2 = al(this.refs[1], this.refs2[1]) ?? this.aligned2;
+    }
+  }
+
+  /** A hinge's two faces, the one on the first round entity's component first. */
+  private hingeFaces(): [MateRef | undefined, MateRef | undefined] {
+    const [f, g] = this.refs2;
+    const comp = this.refs[0] && 'comp' in this.refs[0] ? this.refs[0].comp : null;
+    return f && g && 'comp' in g && g.comp === comp ? [g, f] : [f, g];
   }
 
   render(): HTMLElement[] {
     const app = this.mode.app;
     const ctx = app.unitContext();
-    this.box = new SelectionBox(this, 'Entities to mate', { face: true, edge: true, plane: true, feature: true }, (it) => this.convert(it), (items) => {
-      if (items.length > 2) { this.box.setItems(items.slice(-2)); return; }
-      this.refs = items.map((x) => x.data as MateRef);
-      if (!this.existing) this.pickDefaults();
-      this.mode.app.refreshPanel();
-      this.update();
-    }, { placeholder: 'Select two faces, edges or planes', icon: 'mate' });
-    this.box.setItems(this.refs.map((r) => ({ item: this.mode.itemOf(r), data: r, label: this.label(r) })));
-    const geos = this.refs.length === 2 ? this.refs.map((r) => this.geo(r)) : null;
-    const fits = geos && geos[0] && geos[1] ? MATE_TYPES.filter((t) => t === 'lock' || !mateProblem(t, geos[0]!, geos[1]!)) : MATE_TYPES;
+    const mech = this.mech;
+    const sections: HTMLElement[] = [];
+    if (mech) {
+      const boxes = MECH_BOXES[mech];
+      const made: SelectionBox[] = [];
+      boxes.forEach((spec, i) => {
+        const box = new SelectionBox(this, spec.label, spec.filter, (it) => this.convert(it), (items) => {
+          if (items.length > spec.count) { box.setItems(items.slice(-spec.count)); return; }
+          const refs = items.map((x) => x.data as MateRef);
+          if (i === 0) this.refs = refs; else this.refs2 = refs;
+          this.mechDefaults(mech);
+          // A full box hands the picks on to the next one.
+          const next = made[i + 1];
+          // (A slider's component takes one edge or axis, or two faces.)
+          const axisOnly = mech === 'slider' && refs.length === 1 && (() => { const g = this.geo(refs[0]); return g?.kind === 'line' || g?.kind === 'axis'; })();
+          if ((refs.length === spec.count || axisOnly) && next && next.items.length < boxes[i + 1].count) this.activate(next);
+          this.mode.app.refreshPanel();
+          this.update();
+        }, { placeholder: spec.placeholder, icon: 'mate', single: spec.count === 1 });
+        box.setItems((i === 0 ? this.refs : this.refs2).map((r) => ({ item: this.mode.itemOf(r), data: r, label: this.label(r) })));
+        made.push(box);
+      });
+      this.box = made[0];
+      sections.push(section('Mate Selections', made.map((b) => b.el)));
+    } else {
+      this.box = new SelectionBox(this, 'Entities to mate', { face: true, edge: true, plane: true, feature: true }, (it) => this.convert(it), (items) => {
+        if (items.length > 2) { this.box.setItems(items.slice(-2)); return; }
+        this.refs = items.map((x) => x.data as MateRef);
+        if (!this.existing) this.pickDefaults();
+        this.mode.app.refreshPanel();
+        this.update();
+      }, { placeholder: 'Select two faces, edges or planes', icon: 'mate' });
+      this.box.setItems(this.refs.map((r) => ({ item: this.mode.itemOf(r), data: r, label: this.label(r) })));
+      sections.push(section('Mate Selections', [this.box.el]));
+    }
+    const geos = !mech && this.refs.length === 2 ? this.refs.map((r) => this.geo(r)) : null;
+    const fits = geos && geos[0] && geos[1] ? STANDARD_MATES.filter((t) => t === 'lock' || !mateProblem(t, geos[0]!, geos[1]!)) : STANDARD_MATES;
     const type = this.type ?? 'coincident';
-    const typeSel = selectField<MateType>('Mate type', type, fits.map((t) => ({ value: t, label: MATE_LABELS[t] })), (v) => {
-      this.type = v;
-      this.auto = false;
-      this.pickDefaults();
-      this.mode.app.refreshPanel();
-      this.update();
-    }, `mate:${type}`);
-    const out: HTMLElement[] = [section('Mate Selections', [this.box.el]), section('Standard Mates', [typeSel])];
+    const typeSel = selectField<MateType>('Mate type', type, [...fits, ...MECHANICAL_MATES].map((t) => ({ value: t, label: MATE_LABELS[t] })), (v) => this.setType(v), `mate:${type}`);
+    // The two kinds of mates in groups of their own.
+    const sel = typeSel.querySelector('select')!;
+    const group = (label: string, types: readonly MateType[]) => {
+      const g = h('optgroup', { label });
+      for (const o of [...sel.options]) if (types.includes(o.value as MateType)) g.append(o);
+      return g;
+    };
+    sel.append(group('Standard', STANDARD_MATES), group('Mechanical', MECHANICAL_MATES));
+    sel.value = type;
+    sections.push(section('Mate Type', [typeSel]));
+    const extra = mech ? this.mechOptions(mech, ctx) : this.standardOptions(type, ctx);
+    if (extra.length) sections.push(section('Options', extra));
+    sections.push(h('section', { class: 'pm-section' }, this.result));
+    queueMicrotask(() => this.update());
+    return sections;
+  }
+
+  private setType(v: MateType) {
+    const was = this.mech;
+    this.type = v;
+    this.auto = false;
+    const now = this.mech;
+    // Entities picked for one kind of mate carry over as far as they fit the other.
+    // Whole components (picked in the tree) make no mechanical mate.
+    if (!was && now) { this.refs2 = []; this.refs = this.refs.filter((r) => !('comp' in r) || 'face' in r || 'edge' in r).slice(0, 2); }
+    if (was && !now) this.refs = this.refs.slice(0, 2);
+    if (now === 'gear' && this.by === 'revolution') this.by = null;
+    if (this.by && !((now === 'gear' && this.by === 'ratio') || (now === 'rackPinion' && this.by === 'revolution') || (now === 'universal' && this.by === 'point'))) this.by = null;
+    if (now === 'universal' && !this.existing) this.value = 0;
+    if (this.limitOn && v !== 'distance' && v !== 'angle' && v !== 'hinge' && v !== 'slider') this.limitOn = false;
+    // (Limits in degrees are not limits in millimetres: a hinge's or slider's start from its defaults.)
+    if (this.limitOn && (now === 'hinge' || now === 'slider') && was !== now) this.limitAround(0);
+    this.pickDefaults();
+    this.mode.app.refreshPanel();
+    this.update();
+  }
+
+  private standardOptions(type: MateType, ctx: ReturnType<App['unitContext']>): HTMLElement[] {
     const extra: HTMLElement[] = [];
+    const kind = type === 'distance' ? 'length' : 'angle';
     if (type === 'distance' || type === 'angle') {
-      extra.push(numberField({
-        label: type === 'distance' ? 'Distance' : 'Angle', icon: type === 'distance' ? 'smartDimension' : 'angle', value: this.value, kind: type === 'distance' ? 'length' : 'angle', ctx, min: type === 'distance' ? 0 : 0, max: type === 'angle' ? 180 : undefined,
+      extra.push(checkbox(type === 'distance' ? 'Limit the distance (between two values)' : 'Limit the angle (between two values)', this.limitOn, (v) => {
+        this.limitOn = v;
+        if (v) {
+          const [a, b] = this.refs.map((r) => this.geo(r));
+          const now = a && b ? initialMateSettings(type, a, b).value : typeof this.value === 'number' ? this.value : 10;
+          this.limitAround(now);
+        }
+        this.mode.app.refreshPanel();
+        this.update();
+      }));
+      if (this.limitOn) extra.push(...this.limitFields(kind, ctx));
+      else extra.push(numberField({
+        label: type === 'distance' ? 'Distance' : 'Angle', icon: type === 'distance' ? 'smartDimension' : 'angle', value: this.value, kind, ctx, min: 0, max: type === 'angle' ? 180 : undefined,
         onChange: (v) => { this.value = v; this.update(); },
       }));
     }
     if (type === 'distance' || type === 'tangent') extra.push(checkbox('Flip dimension (other side)', this.flip, (v) => { this.flip = v; this.update(); }));
-    if (type !== 'perpendicular' && type !== 'lock' && type !== 'tangent') {
-      extra.push(h('div', { class: 'field-label' }, 'Mate alignment'), segmented('Mate alignment', this.aligned ? 'aligned' : 'anti', [
-        { value: 'aligned', label: 'Aligned' }, { value: 'anti', label: 'Anti-Aligned' },
-      ], (v) => { this.aligned = v === 'aligned'; this.update(); }));
+    if (type !== 'perpendicular' && type !== 'lock' && type !== 'tangent') extra.push(...this.alignment());
+    return extra;
+  }
+
+  private alignment(): HTMLElement[] {
+    return [h('div', { class: 'field-label' }, 'Mate alignment'), segmented('Mate alignment', this.aligned ? 'aligned' : 'anti', [
+      { value: 'aligned', label: 'Aligned' }, { value: 'anti', label: 'Anti-Aligned' },
+    ], (v) => { this.aligned = v === 'aligned'; this.update(); })];
+  }
+
+  private limitFields(kind: 'length' | 'angle', ctx: ReturnType<App['unitContext']>): HTMLElement[] {
+    const angle = kind === 'angle' && this.type === 'angle';
+    return [
+      numberField({ label: 'Maximum', icon: kind === 'length' ? 'smartDimension' : 'angle', value: this.max, kind, ctx, min: angle ? 0 : undefined, max: angle ? 180 : undefined, onChange: (v) => { this.max = v; this.update(); } }),
+      numberField({ label: 'Minimum', icon: kind === 'length' ? 'smartDimension' : 'angle', value: this.min, kind, ctx, min: angle ? 0 : undefined, max: angle ? 180 : undefined, onChange: (v) => { this.min = v; this.update(); } }),
+    ];
+  }
+
+  private mechOptions(t: MechanicalMateType, ctx: ReturnType<App['unitContext']>): HTMLElement[] {
+    const out: HTMLElement[] = [];
+    const reverse = (label: string) => checkbox(label, this.reverse, (v) => { this.reverse = v; this.update(); });
+    switch (t) {
+      case 'hinge':
+        out.push(...this.alignment(), checkbox('Limit the angle (from where it is now)', this.limitOn, (v) => {
+          this.limitOn = v;
+          if (v) this.limitAround(0);
+          this.mode.app.refreshPanel();
+          this.update();
+        }));
+        if (this.limitOn) out.push(...this.limitFields('angle', ctx));
+        break;
+      case 'gear': {
+        const teeth = this.by === 'ratio';
+        out.push(h('div', { class: 'field-label' }, 'Ratio from'), segmented('Ratio from', teeth ? 'ratio' : 'diameter', [{ value: 'diameter', label: 'Pitch diameters' }, { value: 'ratio', label: 'Teeth' }], (v) => {
+          this.by = v === 'ratio' ? 'ratio' : null;
+          if (v === 'ratio') { this.value = 20; this.value2 = 40; } else this.mechDefaults('gear');
+          this.mode.app.refreshPanel();
+          this.update();
+        }));
+        const kind = teeth ? 'count' : 'length';
+        out.push(
+          numberField({ label: teeth ? 'Teeth of the first gear' : 'Pitch diameter of the first gear', value: this.value, kind, ctx, min: teeth ? 1 : 0, onChange: (v) => { this.value = v; this.update(); } }),
+          numberField({ label: teeth ? 'Teeth of the second gear' : 'Pitch diameter of the second gear', value: this.value2, kind, ctx, min: teeth ? 1 : 0, onChange: (v) => { this.value2 = v; this.update(); } }),
+          reverse('Reverse (an internal gear: both turn the same way)'),
+        );
+        break;
+      }
+      case 'rackPinion': {
+        const per = this.by === 'revolution';
+        out.push(h('div', { class: 'field-label' }, 'Rack travel from'), segmented('Rack travel from', per ? 'revolution' : 'diameter', [{ value: 'diameter', label: 'Pitch diameter' }, { value: 'revolution', label: 'Travel per turn' }], (v) => {
+          this.by = v === 'revolution' ? 'revolution' : null;
+          // (An equation is converted too, as its value: a pitch diameter is not a travel per turn.)
+          let now: number | null = null;
+          try { now = this.mode.app.store.evalParam(this.value, 'length'); } catch { /* left as it is: the field shows its error */ }
+          if (now !== null) this.value = Math.round((v === 'revolution' ? now * Math.PI : now / Math.PI) * 1000) / 1000;
+          this.mode.app.refreshPanel();
+          this.update();
+        }));
+        out.push(
+          numberField({ label: per ? 'Rack travel per turn of the pinion' : 'Pinion pitch diameter', icon: 'smartDimension', value: this.value, kind: 'length', ctx, min: 0, onChange: (v) => { this.value = v; this.update(); } }),
+          reverse('Reverse the direction'),
+        );
+        break;
+      }
+      case 'screw':
+        out.push(
+          numberField({ label: 'Pitch (travel per turn)', icon: 'smartDimension', value: this.value, kind: 'length', ctx, min: 0, onChange: (v) => { this.value = v; this.update(); } }),
+          h('div', { class: 'field-label' }, 'Thread'), segmented('Thread', this.reverse ? 'left' : 'right', [{ value: 'right', label: 'Right-hand' }, { value: 'left', label: 'Left-hand' }], (v) => { this.reverse = v === 'left'; this.update(); }),
+          ...this.alignment(),
+        );
+        break;
+      case 'slider':
+        out.push(...this.alignment(), checkbox('Limit the travel (from where it is now)', this.limitOn, (v) => {
+          this.limitOn = v;
+          if (v) this.limitAround(0);
+          this.mode.app.refreshPanel();
+          this.update();
+        }));
+        if (this.limitOn) out.push(...this.limitFields('length', ctx));
+        break;
+      case 'cam':
+        if (this.refs2[0] && this.geo(this.refs2[0])?.kind === 'plane') out.push(checkbox('Flip the follower face (the cam on its other side)', this.flip, (v) => { this.flip = v; this.update(); }));
+        break;
+      case 'universal':
+        out.push(checkbox('Joint point: the shafts\' axes meet', this.by === 'point', (v) => { this.by = v ? 'point' : null; this.mode.app.refreshPanel(); this.update(); }));
+        if (this.by === 'point') out.push(numberField({ label: 'Joint point offset (along the first shaft)', icon: 'smartDimension', value: this.value, kind: 'length', ctx, onChange: (v) => { this.value = v; this.update(); } }));
+        break;
+      default:
+        break;
     }
-    if (extra.length) out.push(section('Options', extra));
-    out.push(h('section', { class: 'pm-section' }, this.result));
-    queueMicrotask(() => this.update());
     return out;
   }
 
   private convert(it: SelItem): SelBoxItem | null {
     const r = this.mode.refOf(it);
     if (!r) return null;
-    if ('comp' in r && !('face' in r) && !('edge' in r) && this.type !== 'lock') {
+    if ('comp' in r && !('face' in r) && !('edge' in r)) {
       // A component picked in the tree only takes a lock mate.
-      this.type = 'lock';
-      this.auto = false;
+      if (this.mech) return null;
+      if (this.type !== 'lock') { this.type = 'lock'; this.auto = false; }
     }
     return { item: it, data: r, label: this.label(r) };
   }
 
+  /** Where b sits in a's frame now (lock mates, and hinges measuring their angle). */
+  private relNow(a: MateRef, b: MateRef): Placement | undefined {
+    const doc = this.mode.doc;
+    const at = (r: MateRef): Placement | undefined => ('comp' in r ? this.mode.solved.get(r.comp) ?? doc.components.find((c) => c.id === (r as { comp: Id }).comp)?.placement : { p: [0, 0, 0], q: [0, 0, 0, 1] });
+    const pa = at(a), pb = at(b);
+    return pa && pb ? relativePlacement(pa, pb) : undefined;
+  }
+
+  /** Where b sits in a's frame once the assembly is solved with the mate m (as relNow where it does not solve). */
+  private relSolved(m: Mate, a: MateRef, b: MateRef): Placement | undefined {
+    const d = structuredClone({ ...this.mode.doc, blobs: {} }) as AssemblyDocument;
+    this.withMate(d, { ...m });
+    const r = this.mode.solveDoc(d);
+    const id = this.existing?.id ?? d.mates[d.mates.length - 1].id;
+    if (r.invalid.has(id) || r.conflicts.has(id)) return this.relNow(a, b);
+    const at = (x: MateRef): Placement | undefined => ('comp' in x ? r.placements.get(x.comp) ?? d.components.find((c) => c.id === (x as { comp: Id }).comp)?.placement : { p: [0, 0, 0], q: [0, 0, 0, 1] });
+    const pa = at(a), pb = at(b);
+    return pa && pb ? relativePlacement(pa, pb) : this.relNow(a, b);
+  }
+
+  /** Where b sits in a's frame once b's axis passes through a universal joint's point (as relNow where it does not solve). */
+  private relAtJoint(uj: Mate, a: MateRef, b: MateRef): Placement | undefined {
+    const e = this.mode.entity(a);
+    if (typeof e === 'string' || !('comp' in a) || (e.geo.kind !== 'axis' && e.geo.kind !== 'line')) return this.relNow(a, b);
+    let v: number;
+    try { v = this.mode.mateValue(uj); } catch { return this.relNow(a, b); }
+    // The joint point on a, and b's axis through it (a coincident mate standing in for the joint).
+    const point = add(e.geo.p, scale(normalize(e.geo.d), v));
+    return this.relSolved({ ...uj, type: 'coincident', a: { comp: a.comp, point }, aligned: true, by: undefined, value: undefined }, a, b);
+  }
+
   /** The mate as it would be added. */
   private mate(): Mate | null {
-    if (this.refs.length !== 2 || !this.type) return null;
-    const doc = this.mode.doc;
+    if (!this.type) return null;
+    const base = { id: this.existing?.id ?? '', name: this.existing?.name ?? '', type: this.type, aligned: this.aligned, ...(this.existing?.suppressed ? { suppressed: true } : {}) };
+    const mech = this.mech;
+    if (mech) return this.mechMate(mech, base);
+    if (this.refs.length !== 2) return null;
     let [a, b] = this.refs;
     if (this.type === 'lock') {
       a = 'comp' in a ? { comp: a.comp } : a;
       b = 'comp' in b ? { comp: b.comp } : b;
     }
+    const limited = this.limitOn && (this.type === 'distance' || this.type === 'angle');
     const m: Mate = {
-      id: this.existing?.id ?? '', name: this.existing?.name ?? '', type: this.type, a, b, aligned: this.aligned,
+      ...base, a, b,
       ...(this.type === 'distance' || this.type === 'angle' ? { value: this.value } : {}),
+      ...(limited ? { limit: { min: this.min, max: this.max } } : {}),
       ...(this.flip && (this.type === 'distance' || this.type === 'tangent') ? { flip: true } : {}),
-      ...(this.existing?.suppressed ? { suppressed: true } : {}),
     };
-    if (this.type === 'lock') {
-      const pa = 'comp' in a ? this.mode.solved.get(a.comp) ?? doc.components.find((c) => c.id === (a as { comp: Id }).comp)?.placement : { p: [0, 0, 0] as Vec3, q: [0, 0, 0, 1] as [number, number, number, number] };
-      const pb = 'comp' in b ? this.mode.solved.get(b.comp) ?? doc.components.find((c) => c.id === (b as { comp: Id }).comp)?.placement : { p: [0, 0, 0] as Vec3, q: [0, 0, 0, 1] as [number, number, number, number] };
-      if (pa && pb) m.rel = relativePlacement(pa, pb);
-    }
+    if (this.type === 'lock') m.rel = this.relNow(a, b);
     return m;
+  }
+
+  private mechMate(t: MechanicalMateType, base: Omit<Mate, 'a' | 'b'>): Mate | null {
+    const [r0, r1] = this.refs;
+    // The position captured when the mate was added stays while its entities do.
+    const kept = (a: MateRef, b: MateRef) => (this.existing?.type === t && this.existing.rel && JSON.stringify([this.existing.a, this.existing.b]) === JSON.stringify([a, b]) ? this.existing.rel : this.relNow(a, b));
+    if (t === 'slider') {
+      const n = this.refs.length;
+      if (!n || n !== this.refs2.length) return null;
+      const rel = kept(r0, this.refs2[0]);
+      return {
+        ...base, a: r0, b: this.refs2[0], ...(n === 2 ? { a2: r1, b2: this.refs2[1], aligned2: this.aligned2 } : {}),
+        ...(this.limitOn ? { limit: { min: this.min, max: this.max } } : {}), ...(rel ? { rel } : {}),
+      };
+    }
+    if (t === 'cam') {
+      if (!this.refs.length || this.refs2.length !== 1 || !this.refs.every((r) => 'face' in r && 'comp' in r0 && r.comp === r0.comp)) return null;
+      return { ...base, a: r0, b: this.refs2[0], ...(this.refs.length > 1 ? { chain: this.refs.slice(1).map((r) => (r as { face: FaceRef }).face) } : {}), ...(this.flip ? { flip: true } : {}) };
+    }
+    if (t === 'universal') {
+      if (this.refs.length !== 2) return null;
+      const uj: Mate = { ...base, a: r0, b: r1, ...(this.by === 'point' ? { by: 'point', value: this.value } : {}) };
+      const keep = this.existing?.type === t && this.existing.rel && JSON.stringify([this.existing.a, this.existing.b]) === JSON.stringify([r0, r1]);
+      // The yokes are taken from where the shafts are once the joint point holds (it may tilt
+      // the second shaft), not from before: from there, adding the joint turned the shafts.
+      const rel = keep ? this.existing!.rel : this.by === 'point' ? this.relAtJoint(uj, r0, r1) : this.relNow(r0, r1);
+      return { ...uj, ...(rel ? { rel } : {}) };
+    }
+    const counts = MECH_BOXES[t].map((x) => x.count);
+    if (this.refs.length !== counts[0] || (counts[1] && this.refs2.length !== counts[1])) return null;
+    switch (t) {
+      case 'hinge': {
+        const [a2, b2] = this.hingeFaces();
+        const keep = this.existing?.type === 'hinge' && this.existing.rel && JSON.stringify([this.existing.a, this.existing.b]) === JSON.stringify([r0, r1]);
+        const hinge: Mate = { ...base, a: r0, b: r1, a2, b2, aligned2: this.aligned2 };
+        if (!this.limitOn) return hinge;
+        // 0° is where the hinge puts the component, which may turn it about its axis (other mates hold it), not where it is before.
+        const rel = keep ? this.existing!.rel : this.relSolved(hinge, r0, r1);
+        return { ...hinge, limit: { min: this.min, max: this.max }, ...(rel ? { rel } : {}) };
+      }
+      case 'gear': return { ...base, a: r0, b: r1, value: this.value, value2: this.value2, ...(this.by === 'ratio' ? { by: 'ratio' } : {}), ...(this.reverse ? { reverse: true } : {}) };
+      case 'rackPinion': return { ...base, a: r0, b: r1, value: this.value, ...(this.by === 'revolution' ? { by: 'revolution' } : {}), ...(this.reverse ? { reverse: true } : {}) };
+      case 'screw': return { ...base, a: r0, b: r1, value: this.value, ...(this.reverse ? { reverse: true } : {}) };
+      case 'width': return { ...base, a: r0, a2: r1, b: this.refs2[0], b2: this.refs2[1] };
+      case 'slot': return { ...base, a: r0, a2: r1, b: this.refs2[0] };
+    }
+    return null;
   }
 
   private withMate(d: AssemblyDocument, m: Mate) {
     if (this.existing) d.mates = d.mates.map((x) => (x.id === m.id ? m : x));
     else {
       m.id = nextAsmId(d, 'm');
-      const n = d.mates.filter((x) => x.type === m.type).length + 1;
-      let name = `${MATE_LABELS[m.type]}${n}`;
-      for (let k = n + 1; d.mates.some((x) => x.name === name); k++) name = `${MATE_LABELS[m.type]}${k}`;
+      // Limit mates are named for what they limit, as in "LimitDistance1".
+      const limited = !!m.limit && (m.type === 'distance' || m.type === 'angle');
+      const kind = limited ? `Limit${MATE_LABELS[m.type]}` : MATE_LABELS[m.type];
+      const n = d.mates.filter((x) => x.type === m.type && (!!x.limit && (x.type === 'distance' || x.type === 'angle')) === limited).length + 1;
+      let name = `${kind}${n}`;
+      for (let k = n + 1; d.mates.some((x) => x.name === name); k++) name = `${kind}${k}`;
       m.name = name;
       d.mates.push(m);
     }
@@ -336,7 +666,13 @@ export class MatePanel extends PropertyPanel {
   private update() {
     const m = this.mate();
     const mode = this.mode;
-    if (!m) { this.result.textContent = this.refs.length < 2 ? 'Select two entities to mate.' : ''; this.result.className = 'pm-msg'; mode.previewPlacements(null); return; }
+    if (!m) {
+      const mech = this.mech;
+      this.result.textContent = mech ? `Select ${MECH_BOXES[mech].map((b) => b.label.toLowerCase()).join(' and ')}.` : this.refs.length < 2 ? 'Select two entities to mate.' : '';
+      this.result.className = 'pm-msg';
+      mode.previewPlacements(null);
+      return;
+    }
     const d = structuredClone({ ...mode.doc, blobs: {} }) as AssemblyDocument;
     this.withMate(d, m);
     const r = mode.solveDoc(d);
@@ -354,7 +690,7 @@ export class MatePanel extends PropertyPanel {
 
   ok(): boolean {
     const m = this.mate();
-    if (!m) { this.setMessage('error', 'Select two entities to mate.'); return false; }
+    if (!m) { this.setMessage('error', this.mech ? `Select ${MECH_BOXES[this.mech].map((b) => b.label.toLowerCase()).join(' and ')}.` : 'Select two entities to mate.'); return false; }
     const d = structuredClone({ ...this.mode.doc, blobs: {} }) as AssemblyDocument;
     this.withMate(d, m);
     const r = this.mode.solveDoc(d);
@@ -371,7 +707,7 @@ export class MatePanel extends PropertyPanel {
   }
 
   get edited(): boolean {
-    return this.refs.length === 2 && !this.existing;
+    return (this.refs.length > 0 || this.refs2.length > 0) && !this.existing;
   }
 }
 

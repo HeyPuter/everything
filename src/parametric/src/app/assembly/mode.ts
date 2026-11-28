@@ -5,7 +5,7 @@
 // allow. The design tree, ribbon and panels of assemblies are set up here.
 
 import type { FaceInfo, FeatureStatus } from '../../kernel/protocol';
-import type { AsmPartBuild, AsmPartResult } from '../../kernel/assembly';
+import type { AsmPartBuild, AsmPartResult, InterferencePair } from '../../kernel/assembly';
 import { KernelRestartError } from '../../kernel/client';
 import { type Quat, type Vec3, add, cross, dot, normalize, qAxisAngle, qMul, scale, sub } from '../../math/vec';
 import { DocStore, parseDocument } from '../../model/document';
@@ -13,10 +13,13 @@ import { BASE_FRAMES, BASE_PLANE_NAMES } from '../../model/planes';
 import type { Id, PartDocument } from '../../model/types';
 import { UNIT_SYSTEMS } from '../../model/units';
 import {
-  type AsmComponent, type AsmPart, type AssemblyDocument, type ExplodeStep, type Mate, type MateRef, type Placement, MATE_LABELS, PartCache, asAssembly, mateComps,
+  type AsmComponent, type AsmPart, type AssemblyDocument, type ExplodeStep, type Mate, type MateRef, type MotionStudy, type Placement, MATE_LABELS, PartCache, asAssembly, mateComps, mateRefs,
 } from '../../model/assembly';
-import { type ComposedModel, type PartGeometry, combinedName, composeModel, edgeGeo, faceGeo, findEdge, findFace, placementMatrix } from '../../assembly/compose';
-import { type AnalysisResult, type DragGoal, type Geo, MateSolver, type SolverBody, type SolverEntity, type SolverMate, applyPlacement, matesMoving } from '../../assembly/solver';
+import { type ComposedModel, type PartGeometry, camProfileOf, combinedName, composeModel, edgeGeo, faceGeo, findEdge, findFace, placementMatrix } from '../../assembly/compose';
+import {
+  type AnalysisResult, type CamProfile, type DragGoal, type Geo, MateSolver, type SolverBody, type SolverEntity, type SolverMate, applyPlacement, mateBodies, matesMoving, relativePlacement,
+} from '../../assembly/solver';
+import { type MotionResult, type MotionSetup, type MotorInput, MotionRun, framesSpread, profileOf, sameMotionGroups } from '../../assembly/motion';
 import { parseColor } from '../../platform/theme';
 import { confirmDialog, toast } from '../../ui/overlay';
 import type { App } from '../app';
@@ -111,7 +114,7 @@ export class AssemblyMode {
     if (app.kernel.generation !== this.generation) { this.geoms.clear(); this.generation = app.kernel.generation; }
     const used = doc.parts.filter((p) => doc.components.some((c) => c.part === p.id && !c.suppressed));
     // Only the drawing changed (a view dragged on the sheet): the components are shown as they are.
-    const shownKey = JSON.stringify([app.kernel.generation, app.settings.quality, { ...doc, drawing: undefined, modified: undefined, blobs: undefined }]);
+    const shownKey = JSON.stringify([app.kernel.generation, app.settings.quality, { ...doc, drawing: undefined, modified: undefined, blobs: undefined, studies: undefined }]);
     if (this.model && shownKey === this.shownKey && used.every((p) => this.geoms.has(this.key(p)))) return;
     this.shownKey = '';
     const builds: AsmPartBuild[] = [];
@@ -203,13 +206,45 @@ export class AssemblyMode {
       }
       return geo ? { body: c.id, geo } : `The ${'face' in ref ? 'face' : 'edge'} it references on ${c.name} cannot be mated`;
     }
+    if ('point' in ref) return { body: c.id, geo: { kind: 'point', p: ref.point } };
     return { body: c.id, geo: { kind: 'body' } };
   }
 
-  /** Mate value in mm or degrees. */
-  mateValue(m: Mate): number {
-    if (m.value === undefined) return 0;
-    return this.app.store.evalParam(m.value, m.type === 'angle' ? 'angle' : 'length');
+  /** Cam profiles by part copy and faces (a drag step solves the mates many times). */
+  private profiles = new Map<string, CamProfile | string>();
+
+  /**
+   * A cam mate's profile: its faces swept along one direction, as arcs (round
+   * faces, their extent from their circular edges) and corners (the other
+   * faces' edges and mesh vertices), in the cam's coordinates.
+   */
+  camEntity(m: Mate, doc = this.doc): SolverEntity | string {
+    if (!('face' in m.a)) return 'A cam mate needs the faces of the cam\'s profile';
+    const c = doc.components.find((x) => x.id === (m.a as { comp: Id }).comp);
+    if (!c) return 'Its component was deleted';
+    const g = this.geometryOf(c.part);
+    const part = doc.parts.find((p) => p.id === c.part);
+    if (!g || !part) return `${c.name} is not built`;
+    const refs = [m.a.face, ...m.chain ?? []];
+    const key = `${this.key(part)}|${JSON.stringify(refs)}`;
+    let prof = this.profiles.get(key);
+    if (!prof) {
+      prof = camProfileOf(g, refs, c.name);
+      if (this.profiles.size > 50) this.profiles.clear();
+      this.profiles.set(key, prof);
+    }
+    return typeof prof === 'string' ? prof : { body: c.id, geo: prof };
+  }
+
+  /** Mate value in mm or degrees (a gear's teeth when its ratio is by teeth). */
+  mateValue(m: Mate, v = m.value): number {
+    if (v === undefined) return 0;
+    return this.app.store.evalParam(v, m.type === 'angle' || m.type === 'hinge' ? 'angle' : m.by === 'ratio' ? 'count' : 'length');
+  }
+
+  /** What the value of a mate is called (for messages). */
+  private valueName(m: Mate): string {
+    return m.type === 'angle' || m.type === 'hinge' ? 'Angle' : m.type === 'gear' ? (m.by === 'ratio' ? 'Teeth' : 'Pitch diameter') : m.type === 'screw' ? 'Pitch' : m.type === 'rackPinion' ? (m.by === 'revolution' ? 'Travel per turn' : 'Pitch diameter') : 'Distance';
   }
 
   /**
@@ -227,16 +262,24 @@ export class AssemblyMode {
     const inactive = new Set<Id>();
     for (const m of doc.mates) {
       if (m.suppressed || mateComps(m).some((id) => doc.components.find((c) => c.id === id)?.suppressed)) { inactive.add(m.id); continue; }
-      const a = this.entity(m.a, doc), b = this.entity(m.b, doc);
-      if (typeof a === 'string' || typeof b === 'string') { problems.set(m.id, typeof a === 'string' ? a : b as string); continue; }
-      let value = 0;
+      const ents = [m.type === 'cam' ? this.camEntity(m, doc) : this.entity(m.a, doc), this.entity(m.b, doc), m.a2 && this.entity(m.a2, doc), m.b2 && this.entity(m.b2, doc)];
+      const bad = ents.find((e): e is string => typeof e === 'string');
+      if (bad) { problems.set(m.id, bad); continue; }
+      const [a, b, a2, b2] = ents as (SolverEntity | undefined)[] as [SolverEntity, SolverEntity, SolverEntity | undefined, SolverEntity | undefined];
+      let value = 0, value2: number | undefined, limit: { min: number; max: number } | undefined;
       try {
         value = this.mateValue(m);
+        if (m.value2 !== undefined) value2 = this.mateValue(m, m.value2);
+        if (m.limit) limit = { min: this.mateValue(m, m.limit.min), max: this.mateValue(m, m.limit.max) };
       } catch (e) {
-        problems.set(m.id, `${m.type === 'angle' ? 'Angle' : 'Distance'}: ${(e as Error).message}`);
+        problems.set(m.id, `${this.valueName(m)}: ${(e as Error).message}`);
         continue;
       }
-      mates.push({ id: m.id, type: m.type, a, b, aligned: m.aligned, value, flip: !!m.flip, rel: m.rel });
+      mates.push({
+        id: m.id, type: m.type, a, b, aligned: m.aligned, value, flip: !!m.flip, rel: m.rel,
+        ...(a2 ? { a2 } : {}), ...(b2 ? { b2 } : {}), ...(m.aligned2 !== undefined ? { aligned2: m.aligned2 } : {}),
+        ...(value2 !== undefined ? { value2 } : {}), ...(limit ? { limit } : {}), ...(m.by ? { by: m.by } : {}), ...(m.reverse ? { reverse: true } : {}),
+      });
     }
     return { bodies, mates, problems, inactive };
   }
@@ -249,7 +292,7 @@ export class AssemblyMode {
     while (grew) {
       grew = false;
       for (const m of mates) {
-        const ids = [m.a.body, m.b.body];
+        const ids = [m.a, m.b, m.a2, m.b2].flatMap((e) => (e ? [e.body] : []));
         const touches = ids.some((id) => (id ? out.has(id) : ground));
         if (!touches) continue;
         for (const id of ids) if (id && !out.has(id)) { out.add(id); grew = true; }
@@ -365,12 +408,7 @@ export class AssemblyMode {
     // The worker places the same components, in the same order, for measure, export and
     // interference, and the hidden ones too for mass properties (they are still in the assembly).
     this.sceneComps = all.map((it) => it.comp.id);
-    void app.kernel.assembly({
-      op: 'scene', items: all.map((it) => {
-        const part = doc.parts.find((p) => p.id === it.comp.part)!;
-        return { part: this.key(part), m: placementMatrix(it.placement), name: it.comp.name, color: part.color, ...(it.comp.hidden ? { hidden: true } : {}) };
-      }),
-    }).catch(() => undefined);
+    void app.kernel.assembly({ op: 'scene', items: this.sceneItems(all) }).catch(() => undefined);
     if (this.fitPending && model.bbox) {
       this.fitPending = false;
       app.viewport.zoomToFit(false, false);
@@ -378,6 +416,15 @@ export class AssemblyMode {
     app.panel?.onBuild({ mesh: null, faces: model.faces, edges: model.edges, status: [], frames: {}, bbox: model.bbox, ms: 0, preview: null });
     this.updateStatus();
     this.onShow();
+  }
+
+  /** The worker's scene of components placed as given. */
+  private sceneItems(all: { comp: AsmComponent; placement: Placement }[]) {
+    const doc = this.doc;
+    return all.map((it) => {
+      const part = doc.parts.find((p) => p.id === it.comp.part)!;
+      return { part: this.key(part), m: placementMatrix(it.placement), name: it.comp.name, color: part.color, ...(it.comp.hidden ? { hidden: true } : {}) };
+    });
   }
 
   updateStatus() {
@@ -429,7 +476,29 @@ export class AssemblyMode {
       const e = g?.edges[m.edgeLocal[it.index]];
       return c && e ? { comp: c.id, edge: { name: e.name, sig: { type: e.type, m: e.mid, len: e.length } } } : null;
     }
+    if (it.kind === 'vertex') {
+      const v = this.vertexOf(it.p);
+      return v ? { comp: v.comp, point: v.local } : null;
+    }
     return null;
+  }
+
+  /** The component a picked vertex is a vertex of, and where it is in its part. */
+  vertexOf(p: Vec3): { comp: Id; local: Vec3 } | null {
+    let best: { comp: Id; local: Vec3 } | null = null, bestD = Infinity;
+    for (const c of this.doc.components) {
+      const g = !c.suppressed && !c.hidden ? this.geometryOf(c.part) : null;
+      const pl = g?.mesh && this.shownPlacement(c.id);
+      if (!g?.mesh || !pl) continue;
+      const q: Quat = [-pl.q[0], -pl.q[1], -pl.q[2], pl.q[3]];
+      const local = rotateBy(q, sub(p, pl.p));
+      const vs = g.mesh.vertices;
+      for (let k = 0; k < vs.length; k += 3) {
+        const d = Math.hypot(vs[k] - local[0], vs[k + 1] - local[1], vs[k + 2] - local[2]);
+        if (d < bestD) { bestD = d; best = { comp: c.id, local: [vs[k], vs[k + 1], vs[k + 2]] }; }
+      }
+    }
+    return best && bestD < 1e-3 * Math.max(1, this.scale()) ? best : null;
   }
 
   /** The item a mate reference shows as (to highlight it). */
@@ -441,6 +510,10 @@ export class AssemblyMode {
     if ('face' in ref) {
       const i = this.combinedFace(c.id, findFace(g.faces, ref.face));
       return i >= 0 ? { kind: 'face', index: i, name: combinedName(c.id, ref.face.name) } : null;
+    }
+    if ('point' in ref) {
+      const pl = this.shownPlacement(c.id);
+      return pl ? { kind: 'vertex', p: applyPlacement(pl, ref.point) } : null;
     }
     if ('edge' in ref) {
       const m = this.model;
@@ -458,7 +531,7 @@ export class AssemblyMode {
     const out: SelItem[] = [];
     for (const it of this.app.selection.ofKind('feature')) {
       const m = this.doc.mates.find((x) => x.id === it.id);
-      if (m) for (const r of [m.a, m.b]) { const x = this.itemOf(r); if (x) out.push(x); }
+      if (m) for (const r of mateRefs(m)) { const x = this.itemOf(r); if (x) out.push(x); }
       const s = this.doc.explode.find((x) => x.id === it.id);
       if (s) for (const id of s.comps) out.push({ kind: 'feature', id });
     }
@@ -487,6 +560,8 @@ export class AssemblyMode {
       if (m) return `${MATE_LABELS[m.type]} mate: ${this.mateLabel(m)}`;
       const s = this.doc.explode.find((x) => x.id === it.id);
       if (s) return s.name;
+      const st = this.study(it.id);
+      if (st) return `Motion study ${st.name}: ${st.duration} s, ${st.motors.length} ${st.motors.length === 1 ? 'motor' : 'motors'}`;
     }
     return null;
   }
@@ -513,20 +588,49 @@ export class AssemblyMode {
 
   itemName(id: Id): string | null {
     const d = this.doc;
-    return d.components.find((x) => x.id === id)?.name ?? d.mates.find((x) => x.id === id)?.name ?? d.explode.find((x) => x.id === id)?.name ?? null;
+    return d.components.find((x) => x.id === id)?.name ?? d.mates.find((x) => x.id === id)?.name ?? d.explode.find((x) => x.id === id)?.name ?? this.study(id)?.name ?? null;
   }
 
   nameRefusal(id: Id, name: string): string | null {
     const low = name.toLowerCase();
     const d = this.doc;
-    const other = [...d.components, ...d.mates, ...d.explode].find((x) => x.id !== id && x.name.toLowerCase() === low);
+    const other = [...d.components, ...d.mates, ...d.explode, ...d.studies ?? []].find((x) => x.id !== id && x.name.toLowerCase() === low);
     return other ? `"${name}" is already the name of another item. Choose another name.` : null;
   }
 
   rename(id: Id, name: string) {
     this.commit('Rename', (d) => {
-      for (const x of [...d.components, ...d.mates, ...d.explode]) if (x.id === id) x.name = name;
+      for (const x of [...d.components, ...d.mates, ...d.explode, ...d.studies ?? []]) if (x.id === id) x.name = name;
     }, false);
+  }
+
+  /**
+   * Flip Mate Alignment. A hinge's touching faces flip with its axis (the
+   * component turns over; flipped alone, the axis could not hold with the
+   * faces), and its angle limits then count from where it turned over to.
+   */
+  flipAlignment(id: Id) {
+    this.commit('Flip alignment', (d) => {
+      const m = d.mates.find((x) => x.id === id);
+      if (!m) return;
+      m.aligned = !m.aligned;
+      if (m.type !== 'hinge') return;
+      m.aligned2 = !m.aligned2;
+      if (!m.limit || !m.rel || !('comp' in m.a) || !('comp' in m.b)) return;
+      const limit = m.limit;
+      delete m.limit;
+      // (The components are put where it turned over to, so the solve with the limit starts there, at 0°.)
+      const pl = this.solveDoc(d).placements;
+      for (const c of d.components) { const p = pl.get(c.id); if (p && !c.fixed && !c.suppressed) c.placement = p; }
+      const at = (c: Id) => pl.get(c) ?? d.components.find((x) => x.id === c)?.placement;
+      const pa = at(m.a.comp), pb = at(m.b.comp);
+      if (pa && pb) m.rel = relativePlacement(pa, pb);
+      m.limit = limit;
+    });
+  }
+
+  study(id: Id): MotionStudy | undefined {
+    return this.doc.studies?.find((s) => s.id === id);
   }
 
   /** Double click or Enter on a tree row. */
@@ -541,16 +645,22 @@ export class AssemblyMode {
     const comps = doc.components.filter((c) => ids.includes(c.id));
     const mates = doc.mates.filter((m) => ids.includes(m.id) || mateComps(m).some((c) => comps.some((x) => x.id === c)));
     const steps = doc.explode.filter((s) => ids.includes(s.id));
-    const names = [...comps, ...doc.mates.filter((m) => ids.includes(m.id)), ...steps].map((x) => x.name);
+    const studies = (doc.studies ?? []).filter((s) => ids.includes(s.id));
+    const names = [...comps, ...doc.mates.filter((m) => ids.includes(m.id)), ...steps, ...studies].map((x) => x.name);
     if (!names.length) return;
     const dependent = mates.filter((m) => !ids.includes(m.id));
     const msg = dependent.length ? `Delete ${names.join(', ')}? These mates reference ${comps.length === 1 ? 'it' : 'them'} and are deleted too: ${dependent.map((m) => m.name).join(', ')}.` : `Delete ${names.join(', ')}?`;
     if (!(await confirmDialog('Delete', msg, 'Delete', true, signal)) || signal.aborted) return;
     if (this.app.panel) await this.app.closePanel(false);
-    const gone = new Set([...comps.map((c) => c.id), ...mates.map((m) => m.id), ...steps.map((s) => s.id)]);
+    const gone = new Set([...comps.map((c) => c.id), ...mates.map((m) => m.id), ...steps.map((s) => s.id), ...studies.map((s) => s.id)]);
     this.commit('Delete', (d) => {
       d.components = d.components.filter((c) => !gone.has(c.id));
       d.mates = d.mates.filter((m) => !gone.has(m.id));
+      // Motors of deleted components and mates go with them (a file keeps none that point nowhere).
+      if (d.studies) {
+        d.studies = d.studies.filter((s) => !gone.has(s.id)).map((s) => ({ ...s, motors: s.motors.filter((mo) => !(mo.mate && gone.has(mo.mate)) && !(mo.ref && 'comp' in mo.ref && gone.has(mo.ref.comp))) }));
+        if (!d.studies.length) delete d.studies;
+      }
       d.explode = d.explode.filter((s) => !gone.has(s.id)).map((s) => ({ ...s, comps: s.comps.filter((c) => !gone.has(c)) })).filter((s) => s.comps.length);
       if (!d.explode.length) d.exploded = false;
       d.parts = d.parts.filter((p) => d.components.some((c) => c.part === p.id));
@@ -593,10 +703,158 @@ export class AssemblyMode {
     });
   }
 
+  // ---------- motion studies ----------
+
+  /** Computed motion studies, with what they were computed from (see studyKey). */
+  private motions = new Map<Id, { key: string; result: MotionResult }>();
+
+  /** What a study's results depend on: the study and everything the mates are solved from. */
+  studyKey(st: MotionStudy): string {
+    return JSON.stringify([this.solveKey(this.doc), { ...st, id: undefined, name: undefined }]);
+  }
+
+  /** A study's results, and whether they are those of the assembly (and study) as they are now. */
+  motionOf(id: Id, st = this.study(id)): { result: MotionResult; current: boolean } | null {
+    const r = this.motions.get(id);
+    return r && st ? { result: r.result, current: r.key === this.studyKey(st) } : null;
+  }
+
+  /** A study added to the document keeps the results computed while it was set up. */
+  keepMotion(from: Id, to: Id) {
+    const r = this.motions.get(from);
+    this.motions.delete(from);
+    if (r) this.motions.set(to, r);
+  }
+
+  /** Drops a study's results (those of a new study that was set up and cancelled, before the next one). */
+  forgetMotion(id: Id) {
+    this.motions.delete(id);
+  }
+
+  /** The solver input of a study, or why it cannot run. Components start where the mates put them now. */
+  motionSetup(st: MotionStudy): MotionSetup | string {
+    const motors = st.motors.filter((m) => !m.suppressed);
+    if (!motors.length) return st.motors.length ? 'Every motor is suppressed: unsuppress one to drive the mechanism.' : 'Add a motor to drive the mechanism.';
+    const { bodies, mates } = this.solverInput();
+    const a = this.analysis;
+    const held = mates.filter((m) => !a?.conflicts.has(m.id) && !a?.invalid.has(m.id));
+    const start = bodies.map((b) => ({ ...b, placement: this.solved.get(b.id) ?? b.placement }));
+    const names = new Map<Id, string>([...this.doc.mates.map((m) => [m.id, m.name] as [Id, string]), ...motors.map((m) => [m.id, m.name] as [Id, string])]);
+    const store = this.app.store;
+    const inputs: MotorInput[] = [];
+    for (const mo of motors) {
+      // Frequencies and rpm are plain numbers: evaluated as angles are (no length unit is applied).
+      const values = (kind: 'length' | 'angle') => ({
+        profile: mo.profile, rpm: mo.rpm, reverse: mo.reverse,
+        ...Object.fromEntries((['speed', 'amplitude', 'from', 'to'] as const).filter((k) => mo[k] !== undefined).map((k) => [k, store.evalParam(mo[k]!, mo.rpm && k === 'speed' ? 'angle' : kind)])),
+        ...(mo.frequency !== undefined ? { frequency: store.evalParam(mo.frequency, 'angle') } : {}),
+      });
+      try {
+        if (mo.kind === 'mate') {
+          const mt = this.doc.mates.find((x) => x.id === mo.mate);
+          const sm = held.find((x) => x.id === mo.mate);
+          if (!mt || (mt.type !== 'distance' && mt.type !== 'angle') || mt.limit) return `${mo.name}: the mate it drives must be a distance or angle mate without limits.`;
+          if (!sm) return `${mo.name}: ${mt.name} does not hold (suppressed, or with an error). Fix it to drive it.`;
+          inputs.push({ id: mo.id, name: mo.name, kind: 'mate', mate: mt.id, at: profileOf('mate', values(mt.type === 'angle' ? 'angle' : 'length'), st.duration, sm.value) });
+          continue;
+        }
+        if (mo.mate) {
+          // On a hinge (rotary) or a slider (linear): its second component turns or slides relative to its first.
+          const mt = this.doc.mates.find((x) => x.id === mo.mate);
+          const sm = held.find((x) => x.id === mo.mate);
+          const want = mo.kind === 'rotary' ? 'hinge' : 'slider';
+          if (!mt || mt.type !== want) return `${mo.name}: a ${mo.kind} motor goes on a ${want} mate.`;
+          if (!sm) return `${mo.name}: ${mt.name} does not hold (suppressed, or with an error). Fix it to drive it.`;
+          if (mateBodies(sm).every((id) => this.component(id)?.fixed)) return `${mo.name}: both components of ${mt.name} are fixed.`;
+          inputs.push({ id: mo.id, name: mo.name, kind: mo.kind, on: sm, at: profileOf(mo.kind, values(mo.kind === 'rotary' ? 'angle' : 'length'), st.duration) });
+          continue;
+        }
+        const e = mo.ref ? this.entity(mo.ref) : 'It has no axis or direction';
+        if (typeof e === 'string') return `${mo.name}: ${e}.`;
+        const comp = e.body ? this.component(e.body) : undefined;
+        if (!comp || comp.suppressed) return `${mo.name}: its component is suppressed.`;
+        if (comp.fixed) return `${mo.name}: ${comp.name} is fixed. Float it, or pick a face or edge of the component to move.`;
+        if (e.geo.kind !== 'axis' && e.geo.kind !== 'line' && e.geo.kind !== 'plane') return `${mo.name}: pick a round face or edge, a straight edge or a planar face for its ${mo.kind === 'rotary' ? 'axis' : 'direction'}.`;
+        inputs.push({ id: mo.id, name: mo.name, kind: mo.kind, body: comp.id, entity: e, at: profileOf(mo.kind, values(mo.kind === 'rotary' ? 'angle' : 'length'), st.duration) });
+      } catch (err) {
+        return `${mo.name}: ${(err as Error).message}`;
+      }
+    }
+    return { bodies: start, mates: held, motors: inputs, duration: st.duration, fps: st.fps, scale: this.scale(), names };
+  }
+
+  /**
+   * Computes a study in slices of a few milliseconds, yielding to the
+   * interface between them (it stays responsive, and the progress shows).
+   * Null when cancelled; a message when it cannot run.
+   */
+  async computeMotion(st: MotionStudy, id: Id, onProgress: (f: number) => void, cancelled: () => boolean): Promise<MotionResult | string | null> {
+    const setup = this.motionSetup(st);
+    if (typeof setup === 'string') return setup;
+    const key = this.studyKey(st);
+    const run = new MotionRun(setup);
+    onProgress(0);
+    while (!run.done) {
+      const t0 = performance.now();
+      while (!run.done && performance.now() - t0 < 12) run.step();
+      onProgress(run.progress);
+      await yieldToUI();
+      if (cancelled() || this.app.assembly !== this) return null;
+    }
+    this.motions.set(id, { key, result: run.result });
+    return run.result;
+  }
+
+  /**
+   * Interference over a study's motion: the worker's interference check on
+   * frames spread over it (at most `most`). The components the graphics area
+   * shows are put back in the worker's scene afterwards. Null when cancelled.
+   */
+  async motionInterference(res: MotionResult, most: number, onProgress: (f: number) => void, cancelled: () => boolean): Promise<{ time: number; pairs: [Id, Id][]; failed: [Id, Id][] }[] | null> {
+    // Spread over the time (a study's frames are closer where it took smaller steps).
+    const picks = framesSpread(res.times, most);
+    const out: { time: number; pairs: [Id, Id][]; failed: [Id, Id][] }[] = [];
+    // The first frame checked: pairs that have not moved relative to each other since overlap as they did
+    // there (or could not be checked there, as the Interference Detection panel reports them).
+    let first: { placements: Placement[]; hits: [number, number][]; fails: [number, number][] } | null = null;
+    try {
+      for (const [k, i] of picks.entries()) {
+        const all = this.doc.components.filter((c) => !c.suppressed && this.geometryOf(c.part)).map((comp) => ({ comp, placement: res.frames[i].get(comp.id) ?? this.solved.get(comp.id) ?? comp.placement }));
+        await this.app.kernel.assembly({ op: 'scene', items: this.sceneItems(all) });
+        const groups: number[] | undefined = first ? sameMotionGroups(first.placements, all.map((x) => x.placement)) : undefined;
+        const pairs = await this.app.kernel.assembly<InterferencePair[]>({ op: 'interference', mesh: false, ...(groups ? { groups } : {}) });
+        if (cancelled() || this.app.assembly !== this) return null;
+        const hits: [number, number][] = pairs.filter((p) => !p.failed && p.volume > 1e-6).map((p) => [p.a, p.b] as [number, number]);
+        const fails: [number, number][] = pairs.filter((p) => p.failed).map((p) => [p.a, p.b] as [number, number]);
+        if (!first) first = { placements: all.map((x) => x.placement), hits, fails };
+        else {
+          const kept = ([a, b]: [number, number]) => groups![a] === groups![b];
+          hits.push(...first.hits.filter(kept));
+          fails.push(...first.fails.filter(kept));
+        }
+        const ids = (list: [number, number][]) => list.sort((x, y) => x[0] - y[0] || x[1] - y[1]).map(([a, b]) => [all[a].comp.id, all[b].comp.id] as [Id, Id]);
+        if (hits.length || fails.length) out.push({ time: res.times[i], pairs: ids(hits), failed: ids(fails) });
+        onProgress((k + 1) / picks.length);
+      }
+    } finally {
+      if (this.app.assembly === this) this.show();
+    }
+    return out;
+  }
+
   dispose() {
     this.preview = null;
     this.explodePreview = null;
   }
+}
+
+/** Lets the browser handle input and paint before going on (a message, not a timer: timers are slowed in background tabs). */
+function yieldToUI(): Promise<void> {
+  return new Promise((resolve) => {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = () => { ch.port1.close(); resolve(); };
+    ch.port2.postMessage(0);
+  });
 }
 
 /**

@@ -97,7 +97,7 @@ test('a density error does not prevent selecting a preset material', async ({ pa
   await dialog.getByRole('button', { name: 'Apply' }).click();
   await expect(dialog).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.material))
-    .toEqual({ name: 'Aluminum 6061', density: 2700 });
+    .toEqual({ name: 'Aluminum 6061', density: 2700, E: 68900, nu: 0.33, yield: 276, uts: 310 });
   expect(errors).toEqual([]);
 });
 
@@ -199,4 +199,51 @@ test('Equations shows what a value being typed evaluates to, and what uses it, b
   // Nothing is taken until OK.
   await dialog.getByRole('button', { name: 'Cancel' }).click();
   expect(await page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.variables.map((v) => v.expr))).toEqual(['10', 'Width/2']);
+});
+
+test('an invalid elastic property of a custom material is the field marked and focused', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('material'));
+  const dialog = page.getByRole('dialog', { name: 'Material', exact: true });
+  await dialog.getByRole('combobox').selectOption('__custom');
+  const e = dialog.getByLabel('Elastic modulus in GPa'), nu = dialog.getByLabel("Poisson's ratio"), sy = dialog.getByLabel('Yield strength in MPa'), uts = dialog.getByLabel('Tensile strength in MPa');
+  await e.fill('200');
+  await nu.fill('0.5');
+  await sy.fill('250');
+  await uts.fill('400');
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  await expect(nu).toBeFocused();
+  await expect(nu).toHaveAttribute('aria-invalid', 'true');
+  for (const ok of [e, sy, uts]) await expect(ok).not.toHaveAttribute('aria-invalid');
+  await expect(nu).toHaveAccessibleDescription(/Poisson's ratio from 0 to below 0\.5/);
+  // Corrected: applied with the modulus in MPa.
+  await nu.fill('0.3');
+  await expect(nu).not.toHaveAttribute('aria-invalid');
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.material))
+    .toEqual({ name: 'Custom material', density: 1000, E: 200000, nu: 0.3, yield: 250, uts: 400 });
+  expect(errors).toEqual([]);
+});
+
+test('a custom material whose yield strength is above its tensile strength is refused', async ({ page }) => {
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /New part/ }).click();
+  await page.evaluate(() => (window as unknown as Handle).__parametric.commands.run('material'));
+  const dialog = page.getByRole('dialog', { name: 'Material', exact: true });
+  await dialog.getByRole('combobox').selectOption('__custom');
+  await dialog.getByLabel('Elastic modulus in GPa').fill('200');
+  await dialog.getByLabel("Poisson's ratio").fill('0.3');
+  await dialog.getByLabel('Yield strength in MPa').fill('400');
+  await dialog.getByLabel('Tensile strength in MPa').fill('250');
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  await expect(dialog.getByRole('alert')).toHaveText('The yield strength cannot be above the tensile strength.');
+  await expect(dialog.getByLabel('Yield strength in MPa')).toBeFocused();
+  await expect(dialog.getByLabel('Tensile strength in MPa')).toHaveAttribute('aria-invalid', 'true');
+  await dialog.getByLabel('Tensile strength in MPa').fill('450');
+  await dialog.getByRole('button', { name: 'Apply' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as Handle).__parametric.store.doc.material)).toMatchObject({ yield: 400, uts: 450 });
+  expect(errors).toEqual([]);
 });

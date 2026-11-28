@@ -12,6 +12,7 @@ import type { App } from './app';
 import type { SelItem } from './selection';
 import { sheetMetalTreeRows } from './sheetmetal-panels';
 import { camTreeRows } from './cam';
+import { feaTreeRows } from './fea';
 
 interface Row {
   key: string;
@@ -98,6 +99,8 @@ export class FeatureTree {
     }
     // CAM: setups and their operations, open unless closed (the set holds the closed ones).
     rows.push(...camTreeRows(app, (k) => !this.expanded.has(k) || !!this.filter).map((r) => ({ ...r, item: null })));
+    // Stress analysis: the study's fixtures, loads, mesh and results.
+    rows.push(...feaTreeRows(app, (k) => !this.expanded.has(k) || !!this.filter).map((r) => ({ ...r, item: null })));
     if (!this.filter) return rows;
     return rows.filter((r) => r.depth === 0 || r.label.toLowerCase().includes(this.filter));
   }
@@ -123,7 +126,7 @@ export class FeatureTree {
       const f = r.feature;
       const index = f ? doc.features.indexOf(f) : -1;
       // Rollback bar sits after the last built top-level feature.
-      if (!rollbackPlaced && ((f && r.depth === 1 && index >= built) || r.key === 'cam')) {
+      if (!rollbackPlaced && ((f && r.depth === 1 && index >= built) || r.key === 'cam' || r.key === 'fea')) {
         this.list.append(this.rollbackBar());
         rollbackPlaced = true;
       }

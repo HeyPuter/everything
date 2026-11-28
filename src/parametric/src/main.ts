@@ -3,6 +3,7 @@ import { App } from './app/app';
 import { makeHooks, registerCommands } from './app/actions';
 import { installAssembly } from './app/assembly';
 import { installCam } from './app/cam';
+import { installFea } from './app/fea';
 import { FileOps } from './app/fileops';
 import { StartScreen, bindAccountMenu, bindUserMenu, refreshAccount } from './app/start';
 import { TaskPane, recentItems } from './app/taskpane';
@@ -34,6 +35,7 @@ async function boot() {
   const hooks = makeHooks(app);
   installAssembly(app, files, hooks);
   installCam(app, hooks);
+  installFea(app, hooks);
   let start: StartScreen | null = null;
   hooks.recent = () => recentItems(app, files);
   hooks.gettingStarted = () => app.openTaskPane('help');

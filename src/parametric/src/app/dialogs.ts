@@ -10,7 +10,7 @@ import { changeUnits, mapExpressions } from '../model/document';
 import type { MaterialRef, SkCurve, SkDimension, UnitSystem, Variable } from '../model/types';
 import { UNIT_SYSTEMS, formatNumber } from '../model/units';
 import { BASE_FRAMES } from '../model/planes';
-import { MATERIALS } from '../model/materials';
+import { type ElasticProps, MATERIALS, MATERIAL_NOTES, elasticOf, validElastic } from '../model/materials';
 import { uniqueId } from '../model/ids';
 import { idFactory, mirrorAxisDirection, mirrorEntities, offsetCurves, pickMirrorAxis } from '../sketch/ops';
 import { SketchIndex, tessellate } from '../sketch/geom';
@@ -204,7 +204,7 @@ function fieldLabel(text: string, field: HTMLElement): HTMLElement {
 export async function materialDialog(app: App) {
   const signal = app.documentSignal;
   const cur = app.store.doc.material;
-  const preset = cur && MATERIALS.find((m) => m.name === cur.name && m.density === cur.density);
+  const preset = cur && MATERIALS.find((m) => m.name === cur.name && m.density === cur.density && (cur.E === undefined || (cur.E === m.E && cur.nu === m.nu && cur.yield === m.yield && cur.uts === m.uts)));
   const select = h('select', { class: 'input', 'aria-label': 'Material' }) as HTMLSelectElement;
   select.append(h('option', { value: '' }, 'Not specified'));
   for (const m of MATERIALS) {
@@ -213,41 +213,82 @@ export async function materialDialog(app: App) {
     select.append(o);
   }
   select.append(h('option', { value: '__custom' }, 'Custom...'));
+  const own = cur && !preset ? elasticOf(cur) : null;
+  const num = (v: number | undefined, label: string, step = 'any') => h('input', { class: 'input', type: 'number', min: '0', step, value: v === undefined ? '' : String(v), 'aria-label': label }) as HTMLInputElement;
   const customName = h('input', { class: 'input', value: cur && !preset ? cur.name : 'Custom material', 'aria-label': 'Custom material name' }) as HTMLInputElement;
-  const customDensity = h('input', { class: 'input', type: 'number', min: '0', step: 'any', value: String(cur?.density ?? 1000), 'aria-label': 'Density in kg per cubic metre' }) as HTMLInputElement;
-  const custom = h('div', { class: 'grid-form' }, fieldLabel('Name', customName), customName, fieldLabel('Density (kg/m³)', customDensity), customDensity);
+  const customDensity = num(cur?.density ?? 1000, 'Density in kg per cubic metre');
+  // Elastic properties: optional, for stress analysis (GPa reads better than MPa for the modulus).
+  const customE = num(own ? own.E / 1000 : undefined, 'Elastic modulus in GPa');
+  const customNu = num(own?.nu, 'Poisson\'s ratio');
+  const customYield = num(own?.yield, 'Yield strength in MPa');
+  const customUts = num(own?.uts, 'Tensile strength in MPa');
+  const custom = h('div', { class: 'grid-form' }, fieldLabel('Name', customName), customName, fieldLabel('Density (kg/m³)', customDensity), customDensity,
+    fieldLabel('Elastic modulus (GPa)', customE), customE, fieldLabel('Poisson\'s ratio', customNu), customNu,
+    fieldLabel('Yield strength (MPa)', customYield), customYield, fieldLabel('Tensile strength (MPa)', customUts), customUts);
+  const customHint = h('p', { class: 'field-label' }, 'The elastic properties are needed for stress analysis; leave them all empty if the part will not be analyzed.');
   if (cur && !preset) select.value = '__custom';
+  // A preset's analysis properties, and what to keep in mind about them.
+  const props = h('div', { class: 'field-label fea-material-props', 'aria-live': 'polite' });
   const error = h('div', { id: nextDomId('density-error'), class: 'field-label', role: 'alert', style: { color: 'var(--danger)' } });
   customDensity.setAttribute('aria-describedby', error.id);
+  const elasticFields = [customE, customNu, customYield, customUts];
+  for (const f of elasticFields) f.setAttribute('aria-describedby', error.id);
+  // The elastic fields that keep the set from being used (all empty is no set, not an error).
+  const badElastic = () => {
+    if (elasticFields.every((f) => !f.value.trim())) return [];
+    const bad = elasticFields.filter((f) => {
+      const v = Number(f.value);
+      return !f.value.trim() || !Number.isFinite(v) || (f === customNu ? v < 0 || v >= 0.5 : v <= 0);
+    });
+    return bad.length ? bad : yieldAboveUts() ? [customYield, customUts] : [];
+  };
+  // Yield above the tensile strength: the two are most likely swapped.
+  const yieldAboveUts = () => Number(customYield.value) > Number(customUts.value);
+  const customElastic = (): ElasticProps | null | 'invalid' => {
+    if (elasticFields.every((f) => !f.value.trim())) return null;
+    const e = { E: Number(customE.value) * 1000, nu: Number(customNu.value), yield: Number(customYield.value), uts: Number(customUts.value) };
+    return elasticFields.some((f) => !f.value.trim()) || !validElastic(e) || yieldAboveUts() ? 'invalid' : e;
+  };
   const validate = () => {
     const density = Number(customDensity.value);
-    const valid = select.value !== '__custom' || (Number.isFinite(density) && density > 0);
-    error.textContent = valid ? '' : 'Enter a finite, positive density.';
-    if (valid) customDensity.removeAttribute('aria-invalid');
+    const densityOk = select.value !== '__custom' || (Number.isFinite(density) && density > 0);
+    const elasticOk = select.value !== '__custom' || customElastic() !== 'invalid';
+    const bad = elasticOk ? [] : badElastic();
+    error.textContent = !densityOk ? 'Enter a finite, positive density.' : !elasticOk ? (bad[0] === customYield && bad.length === 2 && yieldAboveUts() ? 'The yield strength cannot be above the tensile strength.' : 'Enter all four elastic properties as positive numbers, with a Poisson\'s ratio from 0 to below 0.5 (or leave them all empty).') : '';
+    if (densityOk) customDensity.removeAttribute('aria-invalid');
     else customDensity.setAttribute('aria-invalid', 'true');
-    return valid;
+    for (const f of elasticFields) { if (bad.includes(f)) f.setAttribute('aria-invalid', 'true'); else f.removeAttribute('aria-invalid'); }
+    return densityOk && elasticOk;
   };
-  customDensity.addEventListener('input', () => { if (error.textContent) validate(); });
+  for (const f of [customDensity, ...elasticFields]) f.addEventListener('input', () => { if (error.textContent) validate(); });
   const sync = () => {
-    custom.hidden = select.value !== '__custom';
+    custom.hidden = customHint.hidden = select.value !== '__custom';
+    const m = MATERIALS.find((x) => x.name === select.value);
+    const e = m ? elasticOf(m) : null;
+    props.hidden = !m;
+    props.textContent = !m ? '' : (e ? `Elastic modulus ${formatGroup([e.E / 1000], 1)[0]} GPa, Poisson's ratio ${e.nu}, yield strength ${e.yield} MPa, tensile strength ${e.uts} MPa. ` : '') + (MATERIAL_NOTES[m.name] ?? (e ? 'Typical values.' : ''));
     if (custom.hidden) validate();
   };
   select.addEventListener('change', sync);
   sync();
   const v = await showDialog({
     title: 'Material', signal,
-    body: [h('p', {}, 'The material sets the density used for mass properties.'), select, custom, error],
+    body: [h('p', {}, 'The material sets the density used for mass properties, and the elastic properties used for stress analysis.'), select, props, custom, customHint, error],
     buttons: [{ label: 'Cancel', value: 'cancel' }, { label: 'Apply', value: 'ok', primary: true }],
     onAction: (action) => {
-      if (action === 'ok' && !validate()) { customDensity.focus(); return false; }
+      if (action === 'ok' && !validate()) { (customDensity.getAttribute('aria-invalid') ? customDensity : (badElastic()[0] ?? customE)).focus(); return false; }
     },
   });
   if (v !== 'ok' || signal.aborted) return;
   let m: MaterialRef | null = null;
   if (select.value === '__custom') {
     const d = Number(customDensity.value);
-    m = { name: customName.value.trim() || 'Custom material', density: d };
-  } else if (select.value) m = MATERIALS.find((x) => x.name === select.value) ?? null;
+    const e = customElastic();
+    m = { name: customName.value.trim() || 'Custom material', density: d, ...(e && e !== 'invalid' ? e : {}) };
+  } else if (select.value) {
+    const p = MATERIALS.find((x) => x.name === select.value);
+    m = p ? { ...p } : null;
+  }
   app.store.change('Edit material', (doc) => { doc.material = m; });
 }
 

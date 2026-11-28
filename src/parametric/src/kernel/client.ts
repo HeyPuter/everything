@@ -10,7 +10,7 @@
 import type { SolidWorksImport } from '../formats/sldprt';
 import type { Id } from '../model/types';
 import type { AsmPartBuild, AsmRequest, AsmSceneItem } from './assembly';
-import type { BuildRequest, BuildResult, FlatPatternResult, MassProperties, MeasureResult, MeasureTarget, MeshData, ProjectionRequest, ProjectionResult, WeldVolumes, WorkerRequest, WorkerResponse } from './protocol';
+import type { BuildRequest, BuildResult, FeaSurface, FlatPatternResult, MassProperties, MeasureResult, MeasureTarget, MeshData, ProjectionRequest, ProjectionResult, WeldVolumes, WorkerRequest, WorkerResponse } from './protocol';
 
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
 type Call = Pending & { at: number; type: WorkerRequest['type'] };
@@ -289,6 +289,11 @@ export class KernelClient {
   /** `name` is the part's name, written into a STEP file as its product's name. */
   exportFile(format: 'step' | 'stl', quality = 1, name?: string): Promise<Uint8Array> {
     return this.call({ type: 'export', format, quality, name });
+  }
+
+  /** The solid's boundary for the stress analysis mesher (see ModelBuilder.feaSurface). */
+  feaSurface(tolerance: number): Promise<FeaSurface> {
+    return this.call({ type: 'feaSurface', tolerance });
   }
 
   exportBrep(): Promise<string> {

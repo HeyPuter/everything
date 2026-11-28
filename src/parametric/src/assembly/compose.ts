@@ -7,10 +7,10 @@
 
 import type { EdgeInfo, FaceInfo, MeshData } from '../kernel/protocol';
 import type { Frame, Vec3 } from '../math/vec';
-import { qRotate } from '../math/vec';
+import { cross, dot, normalize, qRotate } from '../math/vec';
 import type { AsmComponent, Placement } from '../model/assembly';
 import type { EdgeRef, FaceRef, Id } from '../model/types';
-import { type Geo, applyPlacement } from './solver';
+import { type CamProfile, type Geo, type ProfileArc, applyPlacement, camProfile } from './solver';
 
 /** What the worker built for a part. */
 export interface PartGeometry {
@@ -190,4 +190,46 @@ export function edgeGeo(geom: PartGeometry, index: number): Geo | null {
   if (e.type === 'line' && e.dir) return { kind: 'line', p: e.a, d: e.dir };
   if (e.type === 'circle' && e.center && e.axis) return { kind: 'axis', p: e.center, d: e.axis, r: e.radius ?? 0, surface: 'circle' };
   return null;
+}
+
+/** A cam's profile from the faces of its part, or why it cannot be one. */
+export function camProfileOf(g: PartGeometry, refs: FaceRef[], name: string): CamProfile | string {
+  const arcs: ProfileArc[] = [], points: Vec3[] = [];
+  let d: Vec3 | null = null;
+  const normals: Vec3[] = [];
+  for (const ref of refs) {
+    const i = findFace(g.faces, ref);
+    if (i < 0) return `A face of the cam's profile on ${name} no longer exists`;
+    const f = g.faces[i];
+    const edges = g.edges.filter((e) => e.faces.includes(i));
+    if (f.type === 'cylinder' && f.axis && f.radius) {
+      const ax = normalize(f.axis.d);
+      if (d && Math.abs(dot(d, ax)) < 0.9999) return 'The faces of the cam\'s profile must all run along one direction (the cam\'s sides)';
+      d ??= ax;
+      // Its extent from a circular edge: a whole circle closes on itself.
+      const e = edges.find((x) => x.type === 'circle' && x.radius && Math.abs(x.radius - f.radius!) < 1e-6 * Math.max(1, f.radius!));
+      const whole = !e || Math.abs(e.length - 2 * Math.PI * f.radius) < 1e-6 * f.radius;
+      arcs.push({ c: f.axis.p, r: f.radius, ...(whole ? {} : { ends: [e!.a, e!.b, e!.mid] as [Vec3, Vec3, Vec3] }) });
+      continue;
+    }
+    if (f.type === 'plane' && f.normal) normals.push(normalize(f.normal));
+    for (const e of edges) points.push(e.a, e.b, e.mid);
+    // Curved faces of other kinds: their mesh vertices (as close as the mesh is to the face).
+    const m = g.mesh;
+    if (m && f.type !== 'plane') for (let k = 0; k < m.vertexFace.length; k++) if (m.vertexFace[k] === i) points.push([m.positions[k * 3], m.positions[k * 3 + 1], m.positions[k * 3 + 2]]);
+  }
+  if (!d) {
+    for (let i = 0; i < normals.length && !d; i++) for (let j = i + 1; j < normals.length && !d; j++) { const x = cross(normals[i], normals[j]); if (Math.hypot(...x) > 1e-3) d = normalize(x); }
+  }
+  if (!d) return 'Select the faces around the cam (its sides): their direction cannot be told from these';
+  if (normals.some((n) => Math.abs(dot(n, d!)) > 1e-6)) return 'The faces of the cam\'s profile must all run along one direction (the cam\'s sides, not its ends)';
+  // The profile goes all the way round: the sides meet along straight edges in the direction
+  // of the axis, and a face beside a selected one there must be selected too (else the
+  // follower would ride across the gap as if the cam were flat there).
+  const picked = new Set(refs.map((r) => findFace(g.faces, r)));
+  for (const e of g.edges) {
+    if (e.type !== 'line' || !e.dir || Math.abs(dot(normalize(e.dir), d)) < 0.9999 || !e.faces.some((i) => picked.has(i))) continue;
+    if (e.faces.some((i) => !picked.has(i))) return 'Select all the faces around the cam (its sides): the profile must go all the way round';
+  }
+  return camProfile(d, arcs, points);
 }

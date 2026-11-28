@@ -1,7 +1,7 @@
 // The design tree of an assembly: the assembly, its planes and origin, the
 // components (with (f) for fixed and (-) for under-defined ones, as in other
-// CAD systems), the Mates folder and the exploded view steps. Same rows,
-// keys and menus as the part tree.
+// CAD systems), the Mates folder, the exploded view steps and the motion
+// studies. Same rows, keys and menus as the part tree.
 
 import type { Id } from '../../model/types';
 import { BASE_PLANE_NAMES } from '../../model/planes';
@@ -19,7 +19,7 @@ interface Row {
   label: string;
   icon: string;
   depth: number;
-  kind: 'root' | 'plane' | 'origin' | 'component' | 'folder' | 'mate' | 'step';
+  kind: 'root' | 'plane' | 'origin' | 'component' | 'folder' | 'mate' | 'step' | 'study';
   children?: boolean;
   expanded?: boolean;
   muted?: string;
@@ -82,6 +82,17 @@ export class AssemblyTree {
       rows.push({ key: 'explode', item: null, label: 'Exploded View', icon: 'explode', depth: 1, kind: 'folder', children: true, expanded: open, muted: doc.exploded ? ' (exploded)' : ' (collapsed)' });
       if (open || this.filter) for (const s of doc.explode) rows.push({ key: s.id, id: s.id, item: { kind: 'feature', id: s.id }, label: s.name, icon: 'explode', depth: 2, kind: 'step', muted: ` (${s.comps.length} ${s.comps.length === 1 ? 'component' : 'components'})` });
     }
+    const studies = doc.studies ?? [];
+    if (studies.length) {
+      const open = !this.collapsed.has('studies');
+      rows.push({ key: 'studies', item: null, label: 'Motion Studies', icon: 'motionStudy', depth: 1, kind: 'folder', children: true, expanded: open });
+      if (open || this.filter) for (const s of studies) {
+        // Results computed for the assembly as it was before an edit are out of date.
+        const res = mode.motionOf(s.id, s);
+        const state = res ? (res.current ? (res.result.stop ? ', stopped early' : ', calculated') : ', out of date') : '';
+        rows.push({ key: s.id, id: s.id, item: { kind: 'feature', id: s.id }, label: s.name, icon: 'motionStudy', depth: 2, kind: 'study', muted: ` (${s.motors.length} ${s.motors.length === 1 ? 'motor' : 'motors'}${state})` });
+      }
+    }
     if (!this.filter) return rows;
     return rows.filter((r) => r.depth === 0 || r.label.toLowerCase().includes(this.filter));
   }
@@ -141,6 +152,7 @@ export class AssemblyTree {
         else if (r.key === 'part') app.openCommandMenu(['properties', 'rename', 'equations', 'insertComponent', 'billOfMaterials'], e.clientX, e.clientY, 'Assembly menu');
         else if (r.key === 'mates') app.openCommandMenu(['mate'], e.clientX, e.clientY, 'Mates menu');
         else if (r.key === 'explode') app.openCommandMenu(['explodedView', 'toggleExplode'], e.clientX, e.clientY, 'Exploded view menu');
+        else if (r.key === 'studies') app.openCommandMenu(['motionStudy'], e.clientX, e.clientY, 'Motion studies menu');
       });
       el.addEventListener('pointerenter', () => { if (r.item) sel.setHover(r.item); });
       el.addEventListener('pointerleave', () => { if (r.item) sel.setHover(null); });

@@ -2,7 +2,7 @@
 // ribbon tab and commands, switching the interface between part and
 // assembly documents, and the context menus of components and mates.
 
-import { Boxes, Expand, ListOrdered, Magnet, Move3d, PackagePlus, RefreshCw, SquaresIntersect, SquareArrowOutUpRight } from 'lucide';
+import { Bolt, Boxes, Clapperboard, Cog, Expand, ListOrdered, Magnet, Move3d, PackagePlus, RefreshCw, SquaresIntersect, SquareArrowOutUpRight } from 'lucide';
 import { type AssemblyDocument, MATE_LABELS, asAssembly, mateComps } from '../../model/assembly';
 import type { Id } from '../../model/types';
 import { type Location, sameLocation } from '../../platform/files';
@@ -16,6 +16,7 @@ import type { RibbonTab } from '../shell';
 import { AssemblyMode } from './mode';
 import { ASSEMBLY_SOURCE, EXPLODED_SOURCE, assemblySource } from '../drawing-sources';
 import { ExplodePanel, InterferencePanel, MatePanel, MovePanel, assemblyMassDialog, bomDialog, insertComponent, pickPart, updateParts } from './panels';
+import { MotionStudyPanel } from './motion-panel';
 
 addIcons({
   assembly: Boxes as unknown as IconNode,
@@ -37,6 +38,18 @@ addIcons({
   'mate:distance': 'smartDimension',
   'mate:angle': [['path', { d: 'M4 20h16M4 20L15 5' }], ['path', { d: 'M11 20a7 7 0 0 0-2.4-5.3' }]],
   'mate:lock': 'lock',
+  'mate:hinge': [['path', { d: 'M4 6h7v12H4z', class: 'a' }], ['path', { d: 'M13 6h7v12h-7z' }], ['circle', { cx: 12, cy: 12, r: 2.2 }]],
+  'mate:gear': Cog as unknown as IconNode,
+  'mate:rackPinion': [['circle', { cx: 12, cy: 9, r: 5, class: 'a' }], ['path', { d: 'M3 18h18M5 18v-2.5M9 18v-2.5M13 18v-2.5M17 18v-2.5M21 18v-2.5' }]],
+  'mate:screw': Bolt as unknown as IconNode,
+  'mate:width': [['path', { d: 'M4 4v16M20 4v16' }], ['rect', { x: 9, y: 7, width: 6, height: 10, rx: 0.5, class: 'a' }], ['path', { d: 'M5.5 12h2M16.5 12h2' }]],
+  'mate:slot': [['path', { d: 'M7 8h10a4 4 0 0 1 0 8H7a4 4 0 0 1 0-8z' }], ['circle', { cx: 9, cy: 12, r: 2, class: 'a' }]],
+  'mate:slider': [['path', { d: 'M3 16h18' }], ['rect', { x: 8, y: 7, width: 8, height: 7, rx: 0.5, class: 'a' }], ['path', { d: 'M4 11l-2 2 2 2M20 11l2 2-2 2' }]],
+  'mate:cam': [['path', { d: 'M12 20c-5 0-7-3-7-6 0-4 3-11 7-11s7 7 7 11c0 3-2 6-7 6z', class: 'a' }], ['circle', { cx: 12, cy: 14, r: 1.5 }]],
+  'mate:universal': [['path', { d: 'M3 18l6-6M21 18l-6-6' }], ['circle', { cx: 12, cy: 10, r: 3.5, class: 'a' }], ['path', { d: 'M12 6.5v7M8.5 10h7' }]],
+  motionStudy: Clapperboard as unknown as IconNode,
+  play: [['path', { d: 'M7 4l13 8-13 8z', class: 'a' }]],
+  pause: [['path', { d: 'M7 4h3v16H7zM14 4h3v16h-3z', class: 'a' }]],
 });
 
 /** The tabs an assembly shows; part tabs (sketch, features...) are hidden. */
@@ -47,7 +60,7 @@ export const ASSEMBLY_TAB: RibbonTab = {
   groups: [
     [{ cmd: 'insertComponent' }, { cmd: 'mate' }],
     [{ stack: [{ cmd: 'moveComponent' }, { cmd: 'rotateComponent' }] }, { stack: [{ cmd: 'explodedView' }, { cmd: 'toggleExplode' }] }],
-    [{ cmd: 'interference' }, { cmd: 'billOfMaterials' }],
+    [{ cmd: 'interference' }, { cmd: 'billOfMaterials' }, { cmd: 'motionStudy' }],
     [{ stack: [{ cmd: 'updateParts' }, { cmd: 'openPart' }] }],
   ],
 };
@@ -112,7 +125,7 @@ export function installAssembly(app: App, files: FileOps, hooks: AppHooks) {
       },
     },
     {
-      id: 'mate', label: 'Mate', icon: 'mate', keywords: 'constraint coincident concentric distance angle parallel assembly', description: 'Position components relative to each other with mates.',
+      id: 'mate', label: 'Mate', icon: 'mate', keywords: 'constraint coincident concentric distance angle parallel assembly limit hinge slider prismatic gear rack pinion screw width slot cam follower universal joint mechanical', description: 'Position components relative to each other with mates.',
       enabled: () => asm() && hasComps(),
       run: () => openPanelWhenBuilt(() => new MatePanel(mode()!)),
     },
@@ -123,6 +136,10 @@ export function installAssembly(app: App, files: FileOps, hooks: AppHooks) {
       id: 'toggleExplode', label: 'Explode/Collapse', icon: 'explode', keywords: 'exploded view collapse', description: 'Switch between the exploded and the assembled view.',
       enabled: () => !!doc()?.explode.length, checked: () => !!doc()?.exploded,
       run: () => { const m = mode(); if (m) m.commit(m.doc.exploded ? 'Collapse' : 'Explode', (d) => { d.exploded = !d.exploded; }, false); },
+    },
+    {
+      id: 'motionStudy', label: 'Motion Study', icon: 'motionStudy', keywords: 'animation motor kinematics mechanism simulate plot velocity', description: 'Drive the mechanism with motors over time, play it back and plot positions, velocities and accelerations.',
+      enabled: () => asm() && hasComps(), run: () => openPanelWhenBuilt(() => new MotionStudyPanel(mode()!)),
     },
     { id: 'interference', label: 'Interference Detection', icon: 'interference', keywords: 'clash overlap collision check', description: 'Find components that overlap, and by how much.', enabled: () => asm() && hasComps(), run: () => openPanelWhenBuilt(() => new InterferencePanel(mode()!)) },
     { id: 'billOfMaterials', label: 'Bill of Materials', icon: 'bom', keywords: 'bom parts list quantity', description: 'The parts of the assembly with their quantities and materials.', enabled: asm, run: () => { const m = mode(); if (m) void bomDialog(m); } },
@@ -205,7 +222,9 @@ export function installAssembly(app: App, files: FileOps, hooks: AppHooks) {
       const mt = m.doc.mates.find((x) => x.id === id);
       if (mt) { openPanelWhenBuilt(() => new MatePanel(m, mt)); return; }
       const st = m.doc.explode.find((x) => x.id === id);
-      if (st) openPanelWhenBuilt(() => new ExplodePanel(m, st));
+      if (st) { openPanelWhenBuilt(() => new ExplodePanel(m, st)); return; }
+      const study = m.study(id);
+      if (study) openPanelWhenBuilt(() => new MotionStudyPanel(m, study));
     };
     if (!app.assembly) { partTree = app.tree; partFlyout = app.flyout; }
     app.assembly = m;
@@ -277,13 +296,28 @@ export function installAssembly(app: App, files: FileOps, hooks: AppHooks) {
     const mate = id ? d.mates.find((x) => x.id === id) : undefined;
     if (mate) {
       const ids = app.tree.targets(mate.id).filter((x) => d.mates.some((y) => y.id === x));
+      // Gears and racks turn the other way round; mates of directions flip their alignment.
+      const reverses = mate.type === 'gear' || mate.type === 'rackPinion';
+      const aligns = !['perpendicular', 'lock', 'tangent', 'width', 'slot', 'cam', 'universal'].includes(mate.type) && !reverses;
       return [
         { label: 'Edit Mate', icon: 'edit', run: () => m.edit(mate.id) },
         { label: 'Rename', icon: 'text', shortcut: 'F2', run: () => app.startRename(mate.id) },
-        ...(mate.type !== 'perpendicular' && mate.type !== 'lock' && mate.type !== 'tangent' ? [{ label: 'Flip Mate Alignment', icon: 'reset', run: () => m.commit('Flip alignment', (x) => { for (const y of x.mates) if (y.id === mate.id) y.aligned = !y.aligned; }) } as MenuItem] : []),
+        ...(aligns ? [{ label: 'Flip Mate Alignment', icon: 'reset', run: () => m.flipAlignment(mate.id) } as MenuItem] : []),
+        // (Only a flat follower face has sides: a vertex or roller follower has nothing to flip.)
+        ...(mate.type === 'cam' && 'face' in mate.b && mate.b.face.sig.type === 'plane' ? [{ label: 'Flip Follower Face', icon: 'reset', run: () => m.commit('Flip follower', (x) => { for (const y of x.mates) if (y.id === mate.id) y.flip = y.flip ? undefined : true; }) } as MenuItem] : []),
+        ...(reverses ? [{ label: 'Reverse Direction', icon: 'reset', run: () => m.commit('Reverse direction', (x) => { for (const y of x.mates) if (y.id === mate.id) y.reverse = y.reverse ? undefined : true; }) } as MenuItem] : []),
         { label: mate.suppressed ? 'Unsuppress' : 'Suppress', icon: mate.suppressed ? 'eye' : 'eyeOff', run: () => m.commit(mate.suppressed ? 'Unsuppress' : 'Suppress', (x) => { for (const y of x.mates) if (ids.includes(y.id)) y.suppressed = mate.suppressed ? undefined : true; }) },
         sep,
         { label: 'Delete', icon: 'trash', shortcut: 'Delete', run: () => void m.deleteItems(ids) },
+      ];
+    }
+    const study = id ? m.study(id) : undefined;
+    if (study) {
+      return [
+        { label: 'Edit Motion Study', icon: 'edit', run: () => m.edit(study.id) },
+        { label: 'Rename', icon: 'text', shortcut: 'F2', run: () => app.startRename(study.id) },
+        sep,
+        { label: 'Delete', icon: 'trash', shortcut: 'Delete', run: () => void m.deleteItems([study.id]) },
       ];
     }
     const step = id ? d.explode.find((x) => x.id === id) : undefined;
