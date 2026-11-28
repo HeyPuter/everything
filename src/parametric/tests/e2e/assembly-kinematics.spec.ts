@@ -1211,3 +1211,40 @@ test('a limited hinge counts its angle from where it puts the component, even wh
   await expect(page.locator('.statusbar')).toContainText('Fully Defined');
   expect(errors).toEqual([]);
 });
+
+test('interference over a motion reports a pair whose overlap could not be computed, in every frame it was checked', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = await openApp(page);
+  await newAssemblyWith(page, [['Plate', PLATE], ['Small', disc(10)], ['Large', disc(20)]], ['Plate', 'Small', 'Large']);
+  await built(page, ['Plate<1>', 'Small<1>', 'Large<1>']);
+  await select(page, [{ comp: 'Large<1>', face: 'E1:side:k' }, { comp: 'Plate<1>', face: 'E1:side:h2' }]);
+  const pm = await openMate(page, 'hinge');
+  await pm.getByRole('group', { name: 'Coincident selections' }).click();
+  await pick(page, { comp: 'Plate<1>', face: 'E1:cap1' });
+  await pick(page, { comp: 'Large<1>', face: 'E1:cap0' });
+  await pm.getByRole('button', { name: 'OK' }).click();
+  await page.evaluate(() => {
+    const a = (window as unknown as { __parametric: A }).__parametric;
+    const m = a.assembly!;
+    const id = m.doc.mates[0].id;
+    m.commit('Study', (d) => { d.studies = [{ id: 's90', name: 'Motion Study1', duration: 2, fps: 30, motors: [{ id: 'o91', name: 'RotaryMotor1', kind: 'rotary', mate: id, profile: 'constant', speed: 90 }] }]; });
+    // The worker cannot compute the overlap of scene items 0 and 1 (wherever it checks them).
+    const k = a.kernel as unknown as { assembly: (r: { op: string; groups?: number[] }) => Promise<unknown> };
+    const orig = k.assembly.bind(k);
+    k.assembly = async (r) => {
+      const out = await orig(r);
+      if (r.op === 'interference' && (!r.groups || r.groups[0] !== r.groups[1])) return [{ a: 0, b: 1, volume: 0, mesh: null, failed: true }, ...(out as unknown[])];
+      return out;
+    };
+  });
+  const tree = page.getByRole('tree', { name: 'Assembly design tree' });
+  await tree.getByRole('treeitem', { name: /^Motion Study1/ }).dblclick();
+  await pm.getByRole('button', { name: 'Calculate' }).click();
+  await expect(pm.getByRole('status').filter({ hasText: /Calculated/ })).toBeVisible();
+  await pm.getByRole('button', { name: 'Check Interference' }).click();
+  await expect(pm.getByRole('button', { name: 'Check Interference' })).toBeVisible({ timeout: 60_000 });
+  // Not called clear: the pair stays still, so it is checked once and kept for every frame.
+  await expect(pm.getByRole('alert').filter({ hasText: 'Could not check Plate<1> / Small<1> (40 frames): the overlap could not be computed.' })).toBeVisible();
+  await expect(pm.getByRole('status').filter({ hasText: 'No interference in the frames checked' })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

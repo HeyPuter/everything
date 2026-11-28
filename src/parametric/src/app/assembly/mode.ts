@@ -810,12 +810,13 @@ export class AssemblyMode {
    * frames spread over it (at most `most`). The components the graphics area
    * shows are put back in the worker's scene afterwards. Null when cancelled.
    */
-  async motionInterference(res: MotionResult, most: number, onProgress: (f: number) => void, cancelled: () => boolean): Promise<{ time: number; pairs: [Id, Id][] }[] | null> {
+  async motionInterference(res: MotionResult, most: number, onProgress: (f: number) => void, cancelled: () => boolean): Promise<{ time: number; pairs: [Id, Id][]; failed: [Id, Id][] }[] | null> {
     // Spread over the time (a study's frames are closer where it took smaller steps).
     const picks = framesSpread(res.times, most);
-    const out: { time: number; pairs: [Id, Id][] }[] = [];
-    // The first frame checked: pairs that have not moved relative to each other since overlap as they did there.
-    let first: { placements: Placement[]; hits: [number, number][] } | null = null;
+    const out: { time: number; pairs: [Id, Id][]; failed: [Id, Id][] }[] = [];
+    // The first frame checked: pairs that have not moved relative to each other since overlap as they did
+    // there (or could not be checked there, as the Interference Detection panel reports them).
+    let first: { placements: Placement[]; hits: [number, number][]; fails: [number, number][] } | null = null;
     try {
       for (const [k, i] of picks.entries()) {
         const all = this.doc.components.filter((c) => !c.suppressed && this.geometryOf(c.part)).map((comp) => ({ comp, placement: res.frames[i].get(comp.id) ?? this.solved.get(comp.id) ?? comp.placement }));
@@ -824,10 +825,15 @@ export class AssemblyMode {
         const pairs = await this.app.kernel.assembly<InterferencePair[]>({ op: 'interference', mesh: false, ...(groups ? { groups } : {}) });
         if (cancelled() || this.app.assembly !== this) return null;
         const hits: [number, number][] = pairs.filter((p) => !p.failed && p.volume > 1e-6).map((p) => [p.a, p.b] as [number, number]);
-        if (!first) first = { placements: all.map((x) => x.placement), hits };
-        else hits.push(...first.hits.filter(([a, b]) => groups![a] === groups![b]));
-        hits.sort((x, y) => x[0] - y[0] || x[1] - y[1]);
-        if (hits.length) out.push({ time: res.times[i], pairs: hits.map(([a, b]) => [all[a].comp.id, all[b].comp.id] as [Id, Id]) });
+        const fails: [number, number][] = pairs.filter((p) => p.failed).map((p) => [p.a, p.b] as [number, number]);
+        if (!first) first = { placements: all.map((x) => x.placement), hits, fails };
+        else {
+          const kept = ([a, b]: [number, number]) => groups![a] === groups![b];
+          hits.push(...first.hits.filter(kept));
+          fails.push(...first.fails.filter(kept));
+        }
+        const ids = (list: [number, number][]) => list.sort((x, y) => x[0] - y[0] || x[1] - y[1]).map(([a, b]) => [all[a].comp.id, all[b].comp.id] as [Id, Id]);
+        if (hits.length || fails.length) out.push({ time: res.times[i], pairs: ids(hits), failed: ids(fails) });
         onProgress((k + 1) / picks.length);
       }
     } finally {

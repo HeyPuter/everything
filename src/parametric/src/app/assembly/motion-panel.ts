@@ -106,7 +106,7 @@ export class MotionStudyPanel extends PropertyPanel {
   // ---------- interference over the motion ----------
 
   /** Frames checked for interference, for the results they were checked on. */
-  private clashes: { result: MotionResult; list: { time: number; pairs: [Id, Id][] }[] } | null = null;
+  private clashes: { result: MotionResult; list: { time: number; pairs: [Id, Id][]; failed: [Id, Id][] }[] } | null = null;
   private checking = false;
 
   private interferenceSection(res: MotionResult): HTMLElement {
@@ -121,10 +121,15 @@ export class MotionStudyPanel extends PropertyPanel {
       const run = h('button', { class: 'btn small kin-check', type: 'button' }, icon('interference', 14), 'Check Interference');
       run.addEventListener('click', () => void this.checkInterference(res));
       items.push(h('p', { class: 'field-label' }, `Finds components that overlap in ${Math.min(INTERFERENCE_FRAMES, res.frames.length)} frames spread over the motion.`), run);
-      const c = this.clashes?.result === res ? this.clashes.list : null;
-      if (c && !c.length) items.push(h('p', { class: 'pm-msg info', role: 'status' }, 'No interference in the frames checked.'));
+      const checked = this.clashes?.result === res ? this.clashes.list : null;
+      const c = checked?.filter((f) => f.pairs.length) ?? null;
+      const name = (id: Id) => this.mode.component(id)?.name ?? '?';
+      // Pairs whose overlap could not be computed are not called clear (as the Interference Detection panel says).
+      const failed = new Map<string, { pair: [Id, Id]; frames: number }>();
+      for (const f of checked ?? []) for (const p of f.failed) { const k = p.join('|'); failed.set(k, { pair: p, frames: (failed.get(k)?.frames ?? 0) + 1 }); }
+      if (failed.size) items.push(h('p', { class: 'pm-msg error', role: 'alert' }, `Could not check ${[...failed.values()].map((x) => `${name(x.pair[0])} / ${name(x.pair[1])} (${x.frames} ${x.frames === 1 ? 'frame' : 'frames'})`).join(', ')}: the overlap could not be computed.`));
+      if (c && !c.length && !failed.size) items.push(h('p', { class: 'pm-msg info', role: 'status' }, 'No interference in the frames checked.'));
       if (c?.length) {
-        const name = (id: Id) => this.mode.component(id)?.name ?? '?';
         const list = h('div', { class: 'file-list', role: 'list', 'aria-label': 'Interference over the motion' });
         for (const f of c) {
           const b = h('button', { class: 'file-item', type: 'button' }, h('span', { 'aria-hidden': 'true', style: { color: 'var(--danger)' } }, icon('interference', 16)),
@@ -148,7 +153,7 @@ export class MotionStudyPanel extends PropertyPanel {
     this.play(false);
     this.checking = true;
     this.app.refreshPanel();
-    let list: { time: number; pairs: [Id, Id][] }[] | null = null;
+    let list: { time: number; pairs: [Id, Id][]; failed: [Id, Id][] }[] | null = null;
     const before = this.checked;
     let done = () => {};
     this.checked = new Promise((resolve) => { done = resolve; });
