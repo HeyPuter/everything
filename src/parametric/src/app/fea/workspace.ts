@@ -7,10 +7,11 @@
 import { FeaCancelled, FeaClient } from '../../fea/client';
 import type { FeaMeshInfo, FeaSolution } from '../../fea/results';
 import type { FixtureInput, LoadInput, StaticInput, Vec3 } from '../../fea/static';
-import { defaultElementSize, estimateDofs, maxElementSize } from '../../fea/mesher';
+import { defaultElementSize, estimateDofs, maxElementSize, minElementSize } from '../../fea/mesher';
 import type { FeaSurface } from '../../kernel/protocol';
 import { FIXTURE_LABELS, LOAD_LABELS, elementSizeFor, feaUnits, newStudy, nextStudyName, type FeaDir, type FeaFixture, type FeaLoad, type FeaLoadType, type FixtureType, type StaticStudy } from '../../model/fea';
 import { elasticOf } from '../../model/materials';
+import { formatNumber } from '../../model/units';
 import { allocateId } from '../../model/document';
 import type { Id } from '../../model/types';
 import { type MenuItem, openMenu } from '../../ui/menu';
@@ -26,8 +27,12 @@ interface SurfaceState {
   /** The part's shape it was read from (see shapeKey). */
   version: string;
   data: FeaSurface;
+  /** Surface area (mm^2). */
+  area: number;
+  /** Automatic, largest and smallest element sizes (mm). */
   auto: number;
   max: number;
+  min: number;
   diag: number;
 }
 
@@ -158,7 +163,7 @@ export class FeaWorkspace {
 
   private sizeOf(): number {
     const s = this.study, sf = this.surface;
-    return sf && s ? elementSizeFor(sf.auto, sf.max, s.mesh.fineness) : 0;
+    return sf && s ? elementSizeFor(sf.auto, sf.max, s.mesh.fineness, sf.min) : 0;
   }
 
   state(): StudyState {
@@ -214,7 +219,7 @@ export class FeaWorkspace {
           const ux = P[b2] - P[a], uy = P[b2 + 1] - P[a + 1], uz = P[b2 + 2] - P[a + 2], wx = P[c] - P[a], wy = P[c + 1] - P[a + 1], wz = P[c + 2] - P[a + 2];
           area += 0.5 * Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx);
         }
-        const st: SurfaceState = { version, data, diag, auto: defaultElementSize(data.volume, area, diag), max: maxElementSize(data.volume, area, diag) };
+        const st: SurfaceState = { version, data, diag, area, auto: defaultElementSize(data.volume, area, diag), max: maxElementSize(data.volume, area, diag), min: minElementSize(data.volume, area, diag) };
         if (this.shapeKey() !== version) return this.surfaceState();
         this.surface = st;
         return st;
@@ -226,11 +231,12 @@ export class FeaWorkspace {
   }
 
   /** Element size and estimated size of the problem for a fineness (null before the surface is known). */
-  sizes(fineness: number): { size: number; auto: number; dofs: number } | null {
+  sizes(fineness: number): { size: number; auto: number; dofs: number; finest: boolean } | null {
     const sf = this.surface;
     if (!sf) return null;
-    const size = elementSizeFor(sf.auto, sf.max, fineness);
-    return { size, auto: sf.auto, dofs: estimateDofs(sf.data.volume, size) };
+    const size = elementSizeFor(sf.auto, sf.max, fineness, sf.min);
+    // finest: held at the smallest size a browser can solve (a finer setting would be smaller).
+    return { size, auto: sf.auto, dofs: estimateDofs(sf.data.volume, size, sf.area), finest: elementSizeFor(sf.auto, sf.max, fineness) < sf.min };
   }
 
   private setBusy(stage: string, progress: number) {
@@ -254,16 +260,23 @@ export class FeaWorkspace {
     this.setBusy('Preparing the part', 0);
     const sf = await this.surfaceState();
     if (gen !== this.generation) return null;
-    const size = elementSizeFor(sf.auto, sf.max, s.mesh.fineness);
+    const size = elementSizeFor(sf.auto, sf.max, s.mesh.fineness, sf.min);
     const key = `${sf.version}|${size}`;
     if (this.mesh?.key === key && this.client.meshed) return this.mesh;
     this.setBusy('Meshing', 0);
     // A copy: the surface stays here for the next mesh (the worker gets its own).
     const surface = { positions: sf.data.positions.slice(), indices: sf.data.indices.slice(), triFace: sf.data.triFace.slice() };
-    const info = await this.client.mesh(surface, size, (stage, v) => this.setBusy(`Meshing: ${stage.toLowerCase()}`, v));
+    const info = await this.client.mesh(surface, size, (stage, v) => this.setBusy(`Meshing: ${stage.toLowerCase()}`, v), sf.min);
     if (gen !== this.generation) return null;
     this.mesh = { key, info, size, version: sf.version };
     return this.mesh;
+  }
+
+  /** A note when the mesh had to be finer than the size set (the part's walls are thinner). */
+  private finerNote(m: { info: FeaMeshInfo; size: number }): string {
+    if (!(m.info.stats.size < m.size * 0.999)) return '';
+    const u = feaUnits(this.app.store.doc.units);
+    return ` (elements of ${formatNumber(m.info.stats.size / u.lengthScale, this.app.store.doc.decimals)} ${u.length}: the part's walls are thinner than the size set)`;
   }
 
   /** Meshes the part (from the mesh panel). */
@@ -281,7 +294,7 @@ export class FeaWorkspace {
       // Cancelled (or the part closed): the status says so already, and a run started since keeps its progress.
       if (gen === this.generation) {
         this.busy = null;
-        this.app.setStatus(this.mesh ? `Meshed: ${this.mesh.info.stats.elements.toLocaleString('en-US')} elements, ${this.mesh.info.stats.nodes.toLocaleString('en-US')} nodes` : this.error?.message ?? '', !this.mesh);
+        this.app.setStatus(this.mesh ? `Meshed: ${this.mesh.info.stats.elements.toLocaleString('en-US')} elements, ${this.mesh.info.stats.nodes.toLocaleString('en-US')} nodes${this.finerNote(this.mesh)}` : this.error?.message ?? '', !this.mesh);
         this.changed();
       }
     }
@@ -405,7 +418,7 @@ export class FeaWorkspace {
         fixtureNames: resolved.fixtureNames, loadNames: resolved.loadNames, when: Date.now(),
       };
       this.busy = null;
-      this.app.setStatus(`Solved in ${((performance.now() - t0) / 1000).toFixed(1)} s: ${sol.summary.dofs.toLocaleString('en-US')} degrees of freedom`);
+      this.app.setStatus(`Solved in ${((performance.now() - t0) / 1000).toFixed(1)} s: ${sol.summary.dofs.toLocaleString('en-US')} degrees of freedom${this.finerNote(m)}`);
     } catch (e) {
       if (e instanceof FeaCancelled) { this.app.setStatus('Analysis cancelled'); }
       else { this.error = { key: this.solveKey(), message: (e as Error).message }; this.app.setStatus((e as Error).message, true); }

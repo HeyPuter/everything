@@ -122,7 +122,7 @@ export class StudyPanel extends FeaPanel {
     const sizeText = h('div', { class: 'field-label', 'aria-live': 'polite' });
     const describe = () => {
       const z = ws.sizes(this.fineness);
-      sizeText.textContent = z ? `Element size ${formatNumber(z.size / u.lengthScale, app.store.doc.decimals)} ${u.length} (automatic ${formatNumber(z.auto / u.lengthScale, app.store.doc.decimals)}), about ${z.dofs.toLocaleString('en-US')} unknowns` : 'Element size: found when the part is first meshed.';
+      sizeText.textContent = z ? `Element size ${formatNumber(z.size / u.lengthScale, app.store.doc.decimals)} ${u.length} (automatic ${formatNumber(z.auto / u.lengthScale, app.store.doc.decimals)}), about ${z.dofs.toLocaleString('en-US')} unknowns${z.finest ? ' (the finest mesh solvable here)' : ''}` : 'Element size: found when the part is first meshed.';
     };
     describe();
     slider.addEventListener('input', () => { this.fineness = Number(slider.value); describe(); });

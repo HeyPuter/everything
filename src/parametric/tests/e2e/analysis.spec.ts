@@ -504,3 +504,46 @@ test('clicking Results in the design tree shows the results panel without starti
   await expect(page.locator('.fea-summary')).toBeVisible({ timeout: 120_000 });
   expect(errors).toEqual([]);
 });
+
+test('a 1.5 mm plate meshes and solves at the default size; Fine stops at what a browser can solve', async ({ page }) => {
+  test.setTimeout(240_000);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Mounting Bracket/ }).click();
+  await page.waitForFunction(() => !!(window as unknown as W).__parametric.bbox);
+  // The part becomes a 100 x 50 x 1.5 plate, fixed at one end and pushed down at the other.
+  await page.evaluate(async () => {
+    const a = (window as unknown as W).__parametric;
+    const pts = [[0, 0], [100, 0], [100, 50], [0, 50]];
+    a.store.change('Plate', (d) => {
+      d.features = [
+        { id: 's1', name: 'Sketch1', type: 'sketch', plane: { kind: 'base', plane: 'front' }, constraints: [], entities: [...pts.map(([x, y], i) => ({ id: `p${i}`, t: 'point' as const, x, y })), ...pts.map((_, i) => ({ id: `l${i}`, t: 'line' as const, a: `p${i}`, b: `p${(i + 1) % 4}` }))] },
+        { id: 'f1', name: 'Extrude1', type: 'extrude', sketch: 's1', cut: false, end: 'blind', depth: 1.5, flip: false, dir2: null, draft: 0, draftOutward: false, thin: null },
+      ] as typeof d.features;
+    });
+    await a.whenBuilt();
+    const ref = (nx: number) => { const f = a.faces.find((x) => x.normal && Math.abs(x.normal[0] - nx) < 1e-9)!; return { name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } }; };
+    a.store.change('Set up', (d) => {
+      d.material = { name: 'Alloy Steel', density: 7700, E: 205000, nu: 0.29, yield: 415, uts: 655 };
+      d.study = { id: 'st900', name: 'Static Study', fixtures: [{ id: 'fx901', name: 'Fixed1', type: 'fixed', faces: [ref(-1)] }], loads: [{ id: 'ld902', name: 'Force1', type: 'force', faces: [ref(1)], value: 10, dir: { kind: 'base', axis: 'z' }, flip: true }], mesh: { fineness: 0.5 } };
+    });
+  });
+  await page.getByRole('tab', { name: 'Analysis' }).click();
+  await page.locator('[data-cmd="fea:study"]').click();
+  await page.getByRole('button', { name: 'Mesh Now' }).click();
+  await expect(page.locator('.fea-stats')).toBeVisible({ timeout: 120_000 });
+  const sizeText = page.locator('.pm-content .field-label[aria-live]');
+  await expect(sizeText).toContainText(/Element size 1\.4\d mm \(automatic 1\.4\d\), about [\d,]+ unknowns$/);
+  // The finest setting is held at about a million unknowns.
+  await page.getByLabel('Mesh density, coarse to fine').fill('1');
+  await expect(sizeText).toContainText(/about 1,000,000 unknowns \(the finest mesh solvable here\)/);
+  await page.getByLabel('Mesh density, coarse to fine').fill('0.5');
+  await page.getByRole('button', { name: 'Close', exact: true }).click();
+  await page.locator('[data-cmd="fea:run"]').click();
+  await expect(page.locator('.fea-summary')).toBeVisible({ timeout: 180_000 });
+  // Beam theory: 10 N at the end of a 100 mm cantilever, 50 x 1.5, E 205 GPa: 1.156 mm (a plate is a little stiffer).
+  const disp = await page.locator('.fea-summary tr', { hasText: 'Max displacement' }).locator('td').first().innerText();
+  const d = Number(disp.replace(/[^\d.]/g, ''));
+  expect(d).toBeGreaterThan(1.04);
+  expect(d).toBeLessThan(1.16);
+  expect(errors).toEqual([]);
+});
