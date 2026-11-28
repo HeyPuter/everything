@@ -570,3 +570,26 @@ test('a 1.5 mm plate meshes and solves at the default size; Fine stops at what a
   expect(d).toBeLessThan(1.16);
   expect(errors).toEqual([]);
 });
+
+test('a roller on a cone leaves the part free to turn about the cone axis', async ({ page }) => {
+  test.setTimeout(180_000);
+  const errors = await openApp(page);
+  await page.getByRole('button', { name: /Pipe Flange/ }).click();
+  await page.waitForFunction(() => !!(window as unknown as W).__parametric.bbox);
+  // The flange on a roller on its chamfer (a cone about Y), pressed down on its top.
+  await page.evaluate(async () => {
+    const a = (window as unknown as W).__parametric;
+    await a.whenBuilt();
+    const ref = (f: (typeof a.faces)[number]) => ({ name: f.name, sig: { type: f.type, c: f.center, n: f.normal, area: f.area } });
+    const cone = a.faces.find((f) => f.type === 'cone')!;
+    const top = a.faces.filter((f) => f.normal && f.normal[1] > 0.99).sort((p, q) => q.area - p.area)[0];
+    a.store.change('Set up', (d) => {
+      d.study = { id: 'st900', name: 'Static Study', fixtures: [{ id: 'fx901', name: 'Roller1', type: 'roller', faces: [ref(cone)] }], loads: [{ id: 'ld902', name: 'Pressure1', type: 'pressure', faces: [ref(top)], value: 1, flip: false }], mesh: { fineness: 0.3 } };
+    });
+  });
+  await page.getByRole('tab', { name: 'Analysis' }).click();
+  await page.locator('[data-cmd="fea:run"]').click();
+  await expect(page.locator('.fea-summary')).toBeVisible({ timeout: 120_000 });
+  await expect(page.locator('.pm-content')).toContainText('free to turn about Y');
+  expect(errors).toEqual([]);
+});

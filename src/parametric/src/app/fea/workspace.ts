@@ -408,6 +408,9 @@ export class FeaWorkspace {
       if (!m || gen !== this.generation) return;
       // The faces were found in another shape than the one meshed (the part changed while it started).
       if (m.version !== shape) throw new Error('The part changed while the analysis started. Run it again.');
+      // Rollers are held along their faces' true surfaces (a cone's, a sphere's), as the part gives them.
+      const surfaces = this.surface?.version === m.version ? this.surface.data.surfaces : null;
+      if (surfaces) for (const fx of resolved.input.fixtures) if (fx.kind === 'roller') fx.surfaces = fx.faces.map((i) => surfaces[i] ?? null);
       // The shape meshed and the study read at the start: a change during the run leaves the results out of date.
       const key = this.solveKey(m.size, m.version, studyKey);
       const t0 = performance.now();
