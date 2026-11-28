@@ -1172,3 +1172,31 @@ test('a motion study plots the turn of a hinge without limits, from where it sta
   await pm.getByRole('button', { name: 'Cancel' }).first().click();
   expect(errors).toEqual([]);
 });
+
+test('a limited hinge counts its angle from where it puts the component, even when it turns it about its axis', async ({ page }) => {
+  test.setTimeout(120_000);
+  const errors = await openApp(page);
+  await newAssemblyWith(page, [['Plate', PLATE]], ['Plate', 'Plate']);
+  await built(page, ['Plate<1>', 'Plate<2>']);
+  const tree = page.getByRole('tree', { name: 'Assembly design tree' });
+  // The second plate turns about its second hole, on the first plate's, and is turned 90° about it.
+  await select(page, [{ comp: 'Plate<2>', face: 'E1:side:h2' }, { comp: 'Plate<1>', face: 'E1:side:h2' }]);
+  let pm = await openMate(page, 'concentric');
+  await pm.getByRole('button', { name: 'OK' }).click();
+  await page.evaluate(() => {
+    const m = (window as unknown as { __parametric: A }).__parametric.assembly!;
+    m.commit('Turn', (d) => { const c = d.components.find((x) => x.name === 'Plate<2>')!; c.placement = { p: [70, -30, 10], q: [0, 0, Math.SQRT1_2, Math.SQRT1_2] }; }, false);
+  });
+  // A hinge on the first holes turns it back 90° to line them up: limited to ±45° from there, it holds.
+  await select(page, [{ comp: 'Plate<2>', face: 'E1:side:h1' }, { comp: 'Plate<1>', face: 'E1:side:h1' }]);
+  pm = await openMate(page, 'hinge');
+  await pm.getByRole('group', { name: 'Coincident selections' }).click();
+  await pick(page, { comp: 'Plate<1>', face: 'E1:cap1' });
+  await pick(page, { comp: 'Plate<2>', face: 'E1:cap0' });
+  await pm.getByRole('checkbox', { name: /Limit the angle/ }).check();
+  await expect(pm.getByRole('status').filter({ hasText: 'The assembly is fully defined.' })).toBeVisible();
+  await pm.getByRole('button', { name: 'OK' }).click();
+  await expect(tree.getByRole('treeitem', { name: /^Hinge1/ })).not.toHaveAttribute('aria-description', /Error/);
+  await expect(page.locator('.statusbar')).toContainText('Fully Defined');
+  expect(errors).toEqual([]);
+});

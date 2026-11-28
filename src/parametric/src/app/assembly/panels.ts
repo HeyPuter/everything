@@ -554,6 +554,18 @@ export class MatePanel extends PropertyPanel {
     return pa && pb ? relativePlacement(pa, pb) : undefined;
   }
 
+  /** Where b sits in a's frame once the assembly is solved with the mate m (as relNow where it does not solve). */
+  private relSolved(m: Mate, a: MateRef, b: MateRef): Placement | undefined {
+    const d = structuredClone({ ...this.mode.doc, blobs: {} }) as AssemblyDocument;
+    this.withMate(d, { ...m });
+    const r = this.mode.solveDoc(d);
+    const id = this.existing?.id ?? d.mates[d.mates.length - 1].id;
+    if (r.invalid.has(id) || r.conflicts.has(id)) return this.relNow(a, b);
+    const at = (x: MateRef): Placement | undefined => ('comp' in x ? r.placements.get(x.comp) ?? d.components.find((c) => c.id === (x as { comp: Id }).comp)?.placement : { p: [0, 0, 0], q: [0, 0, 0, 1] });
+    const pa = at(a), pb = at(b);
+    return pa && pb ? relativePlacement(pa, pb) : this.relNow(a, b);
+  }
+
   /** The mate as it would be added. */
   private mate(): Mate | null {
     if (!this.type) return null;
@@ -605,8 +617,11 @@ export class MatePanel extends PropertyPanel {
       case 'hinge': {
         const [a2, b2] = this.hingeFaces();
         const keep = this.existing?.type === 'hinge' && this.existing.rel && JSON.stringify([this.existing.a, this.existing.b]) === JSON.stringify([r0, r1]);
-        const rel = this.limitOn ? (keep ? this.existing!.rel : this.relNow(r0, r1)) : undefined;
-        return { ...base, a: r0, b: r1, a2, b2, aligned2: this.aligned2, ...(this.limitOn ? { limit: { min: this.min, max: this.max } } : {}), ...(rel ? { rel } : {}) };
+        const hinge: Mate = { ...base, a: r0, b: r1, a2, b2, aligned2: this.aligned2 };
+        if (!this.limitOn) return hinge;
+        // 0° is where the hinge puts the component, which may turn it about its axis (other mates hold it), not where it is before.
+        const rel = keep ? this.existing!.rel : this.relSolved(hinge, r0, r1);
+        return { ...hinge, limit: { min: this.min, max: this.max }, ...(rel ? { rel } : {}) };
       }
       case 'gear': return { ...base, a: r0, b: r1, value: this.value, value2: this.value2, ...(this.by === 'ratio' ? { by: 'ratio' } : {}), ...(this.reverse ? { reverse: true } : {}) };
       case 'rackPinion': return { ...base, a: r0, b: r1, value: this.value, ...(this.by === 'revolution' ? { by: 'revolution' } : {}), ...(this.reverse ? { reverse: true } : {}) };
